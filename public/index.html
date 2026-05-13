@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rorr</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #0f0f10; color: #e6e6e6; display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 12px 20px; border-bottom: 1px solid #222; font-weight: 600; }
+  #log { flex: 1; overflow-y: auto; padding: 20px; max-width: 860px; width: 100%; margin: 0 auto; }
+  .msg { margin: 14px 0; padding: 12px 14px; border-radius: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .user { background: #1f2330; }
+  .assistant { background: #14171f; }
+  .tool { background: #1a1a1f; color: #9aa; font-size: 12px; font-family: ui-monospace, monospace; }
+  form { display: flex; padding: 16px; border-top: 1px solid #222; gap: 8px; max-width: 860px; width: 100%; margin: 0 auto; }
+  textarea { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #15151a; color: #eee; resize: none; height: 60px; font-family: inherit; }
+  button { padding: 0 18px; border-radius: 8px; border: 0; background: #4a7bff; color: #fff; cursor: pointer; font-weight: 600; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  a { color: #6fa8ff; }
+</style>
+</head>
+<body>
+<header>rorr · infra/backend/frontend orchestrator</header>
+<div id="log"></div>
+<form id="form">
+  <textarea id="input" placeholder="예: dev에 테스트 S3 버킷 만들고 PR 올려줘" autofocus></textarea>
+  <button id="send">전송</button>
+</form>
+
+<script>
+const log = document.getElementById("log");
+const input = document.getElementById("input");
+const form = document.getElementById("form");
+const sendBtn = document.getElementById("send");
+const history = [];
+
+function addMsg(role, text) {
+  const el = document.createElement("div");
+  el.className = "msg " + role;
+  // 링크 자동화
+  el.innerHTML = text.replace(/(https?:\/\/\S+)/g, '<a href="$1" target="_blank">$1</a>');
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function blocksToText(blocks) {
+  if (!Array.isArray(blocks)) return String(blocks ?? "");
+  return blocks
+    .map((b) => {
+      if (b.type === "text") return b.text;
+      if (b.type === "tool_use") return `[tool: ${b.name}]`;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  addMsg("user", text);
+  history.push({ role: "user", content: text });
+  input.value = "";
+  sendBtn.disabled = true;
+
+  try {
+    const r = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: history }),
+    });
+    const data = await r.json();
+    if (data.error) {
+      addMsg("assistant", "에러: " + data.error);
+    } else {
+      const text = blocksToText(data.content);
+      addMsg("assistant", text);
+      history.push({ role: "assistant", content: data.content });
+    }
+  } catch (e) {
+    addMsg("assistant", "에러: " + e.message);
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+});
+
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    form.requestSubmit();
+  }
+});
+</script>
+</body>
+</html>
