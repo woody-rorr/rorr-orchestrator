@@ -1,25 +1,24 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
-import { fromIni } from "@aws-sdk/credential-providers";
 import { callTool, flattenTools } from "./mcpRegistry.js";
 
 const PROVIDER = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "bedrock");
 const AWS_REGION = process.env.AWS_REGION || "us-east-1";
-const AWS_PROFILE = process.env.AWS_PROFILE || "rorr-dev";
+const AWS_PROFILE = process.env.AWS_PROFILE;  // 로컬에서만 사용; ECS에선 비어 있어야 함
 
 const MODEL = process.env.LLM_MODEL ||
   (PROVIDER === "bedrock"
     ? "anthropic.claude-3-5-sonnet-20241022-v2:0"
     : "claude-opus-4-7");
 
-console.log(`[llm] provider=${PROVIDER} model=${MODEL}`);
+console.log(`[llm] provider=${PROVIDER} model=${MODEL} profile=${AWS_PROFILE || "(default chain)"}`);
 
 const anthropic = PROVIDER === "anthropic" ? new Anthropic() : null;
+// AWS SDK 기본 자격증명 체인 사용:
+// - 로컬: AWS_PROFILE 환경변수 자동 인식 (~/.aws/credentials)
+// - ECS:  컨테이너 자격증명(Task Role) 자동 인식
 const bedrock = PROVIDER === "bedrock"
-  ? new BedrockRuntimeClient({
-      region: AWS_REGION,
-      credentials: process.env.AWS_ACCESS_KEY_ID ? undefined : fromIni({ profile: AWS_PROFILE }),
-    })
+  ? new BedrockRuntimeClient({ region: AWS_REGION })
   : null;
 
 async function llmCall({ system, tools, messages }) {
