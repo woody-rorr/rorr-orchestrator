@@ -19,7 +19,7 @@ env:
   ECR_REPO: rorr-orchestrator
   ECR_REGISTRY: 239460481239.dkr.ecr.us-east-1.amazonaws.com
   CLUSTER: mcp-agents-staging-cluster
-  SERVICE: rorr-orchestrator-service
+  SERVICE: rorr-mcp-orchestrator-service
 
 jobs:
   deploy:
