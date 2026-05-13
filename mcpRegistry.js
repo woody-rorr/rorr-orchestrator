@@ -19,8 +19,22 @@ export async function connectAllMcps({ userId }) {
       });
       await client.connect(transport);
       const { tools } = await client.listTools();
-      registry[name] = { client, tools, url };
-      console.log(`[mcp] connected: ${name} (${tools.length} tools) ${url}`);
+      let resources = [];
+      try {
+        const r = await client.listResources();
+        resources = r.resources ?? [];
+      } catch {}
+      const docs = [];
+      for (const r of resources) {
+        try {
+          const res = await client.readResource({ uri: r.uri });
+          for (const c of res.contents ?? []) {
+            if (c.text) docs.push({ uri: r.uri, name: r.name, text: c.text });
+          }
+        } catch {}
+      }
+      registry[name] = { client, tools, resources, docs, url };
+      console.log(`[mcp] connected: ${name} (${tools.length} tools, ${docs.length} docs) ${url}`);
     } catch (e) {
       console.error(`[mcp] failed to connect ${name} (${url}): ${e.message}`);
     }
