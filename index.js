@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { connectAllMcps } from "./mcpRegistry.js";
+import { connectAllMcps, listServerCatalog } from "./mcpRegistry.js";
 import { runChat } from "./chat.js";
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
@@ -26,11 +26,25 @@ app.get("/health", (_, res) => {
   });
 });
 
+// 카탈로그 + 현재 연결 상태
+app.get("/mcps", (_, res) => {
+  const catalog = listServerCatalog();
+  res.json(catalog.map((c) => ({
+    ...c,
+    connected: !!registry[c.name],
+    tools: registry[c.name]?.tools.length ?? 0,
+  })));
+});
+
 app.post("/chat", async (req, res) => {
-  const { messages } = req.body;
+  const { messages, enabled_mcps } = req.body;
   if (!Array.isArray(messages)) return res.status(400).json({ error: "messages required" });
   try {
-    const { final } = await runChat({ messages, registry });
+    // enabled_mcps 지정되면 그 MCP들만 사용
+    const filtered = enabled_mcps && Array.isArray(enabled_mcps)
+      ? Object.fromEntries(Object.entries(registry).filter(([k]) => enabled_mcps.includes(k)))
+      : registry;
+    const { final } = await runChat({ messages, registry: filtered });
     res.json({ content: final });
   } catch (e) {
     console.error(e);

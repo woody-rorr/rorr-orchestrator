@@ -5,86 +5,585 @@
 <title>rorr</title>
 <style>
   :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #0f0f10; color: #e6e6e6; display: flex; flex-direction: column; height: 100vh; }
-  header { padding: 12px 20px; border-bottom: 1px solid #222; font-weight: 600; }
-  #log { flex: 1; overflow-y: auto; padding: 20px; max-width: 860px; width: 100%; margin: 0 auto; }
-  .msg { margin: 14px 0; padding: 12px 14px; border-radius: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-  .user { background: #1f2330; }
-  .assistant { background: #14171f; }
-  .tool { background: #1a1a1f; color: #9aa; font-size: 12px; font-family: ui-monospace, monospace; }
-  form { display: flex; padding: 16px; border-top: 1px solid #222; gap: 8px; max-width: 860px; width: 100%; margin: 0 auto; }
-  textarea { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #15151a; color: #eee; resize: none; height: 60px; font-family: inherit; }
-  button { padding: 0 18px; border-radius: 8px; border: 0; background: #4a7bff; color: #fff; cursor: pointer; font-weight: 600; }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: #0a0a0b;
+    color: #e6e6e6;
+    height: 100vh;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  aside {
+    width: 260px;
+    background: #131316;
+    border-right: 1px solid #222;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+  }
+  .new-chat {
+    background: #ffffff;
+    color: #111;
+    border: 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+  }
+  .new-chat:hover { background: #f0f0f0; }
+  .recent-label {
+    font-size: 11px;
+    color: #777;
+    margin: 20px 4px 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .recent-list { flex: 1; overflow-y: auto; }
+  .recent-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #ccc;
+    cursor: pointer;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent-item:hover { background: #1d1d22; }
+  .recent-item.active { background: #2a2a30; color: #fff; }
+  .user-info {
+    border-top: 1px solid #222;
+    padding: 12px 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #aaa;
+  }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #4a7bff; color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 12px;
+  }
+
+  /* Main */
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #0a0a0b;
+  }
+  header {
+    padding: 14px 24px;
+    border-bottom: 1px solid #1c1c1f;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .title { font-size: 15px; font-weight: 600; }
+  .tags { display: flex; gap: 6px; margin-left: auto; }
+  .tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+  .tag.frontend { background: #3a5fb0; color: #fff; }
+  .tag.backend  { background: #6a4bb0; color: #fff; }
+  .tag.infra    { background: #2d7d6c; color: #fff; }
+  .tag.web      { background: #b07a3a; color: #fff; }
+
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    max-width: 860px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .msg {
+    margin: 16px 0;
+    padding: 12px 14px;
+    border-radius: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 14px;
+  }
+  .user {
+    background: #2a4d8f;
+    margin-left: auto;
+    max-width: 80%;
+    border-bottom-right-radius: 4px;
+  }
+  .assistant {
+    background: #16161a;
+    max-width: 92%;
+    border-bottom-left-radius: 4px;
+  }
+  .tool-call {
+    background: linear-gradient(90deg, rgba(78,140,255,0.1), transparent);
+    border-left: 3px solid #4e8cff;
+    padding: 8px 12px;
+    margin: 8px 0;
+    font-size: 12px;
+    color: #9ab8e8;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+  }
+  .pr-result {
+    background: rgba(46, 160, 67, 0.12);
+    border: 1px solid rgba(46, 160, 67, 0.4);
+    color: #56d364;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin: 8px 0;
+    font-size: 13px;
+  }
+  .pr-result a { color: #56d364; text-decoration: underline; }
+  .img-preview {
+    max-width: 320px;
+    border-radius: 8px;
+    margin: 6px 0;
+    display: block;
+  }
   a { color: #6fa8ff; }
+
+  /* Input */
+  form {
+    padding: 16px 24px 20px;
+    border-top: 1px solid #1c1c1f;
+    max-width: 860px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .input-wrap {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    background: #15151a;
+    border: 1px solid #2a2a30;
+    border-radius: 12px;
+    padding: 8px 8px 8px 14px;
+  }
+  .input-wrap:focus-within { border-color: #4e8cff; }
+  textarea {
+    flex: 1;
+    padding: 6px 0;
+    border: 0;
+    background: transparent;
+    color: #eee;
+    resize: none;
+    height: 28px;
+    max-height: 200px;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+  }
+  .icon-btn {
+    width: 36px; height: 36px;
+    border: 0; border-radius: 8px;
+    background: transparent; color: #888;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .icon-btn:hover { background: #1f1f25; color: #ccc; }
+  .send-btn {
+    background: #4e8cff;
+    color: #fff;
+    width: 36px; height: 36px;
+    border: 0; border-radius: 8px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .attached {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 0 0 8px;
+  }
+  .chip {
+    background: #1f1f25;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chip .x { cursor: pointer; color: #888; }
+  .chip .x:hover { color: #fff; }
+  .empty {
+    text-align: center;
+    color: #555;
+    padding: 80px 20px;
+    font-size: 14px;
+  }
+
+  /* Settings button in sidebar */
+  .settings-btn {
+    background: transparent;
+    color: #aaa;
+    border: 1px solid #2a2a30;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    margin-top: 8px;
+  }
+  .settings-btn:hover { background: #1d1d22; color: #fff; }
+
+  /* Modal */
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.65);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: #15151a;
+    border: 1px solid #2a2a30;
+    border-radius: 14px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 24px;
+  }
+  .modal h2 { font-size: 18px; margin-bottom: 4px; }
+  .modal .desc { color: #888; font-size: 13px; margin-bottom: 20px; }
+  .mcp-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid #222;
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .mcp-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: #2a2f4a;
+    display: flex; align-items: center; justify-content: center;
+    color: #8aa4ff;
+  }
+  .mcp-meta { flex: 1; }
+  .mcp-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .mcp-desc { font-size: 12px; color: #888; }
+  .mcp-status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .mcp-status.active { background: rgba(46, 160, 67, 0.2); color: #56d364; }
+  .mcp-status.warn { background: rgba(255, 165, 0, 0.18); color: #ffb454; }
+  .mcp-status.off { background: #2a2a30; color: #888; }
+
+  /* Toggle */
+  .switch {
+    position: relative;
+    width: 44px; height: 24px;
+    cursor: pointer;
+  }
+  .switch input { display: none; }
+  .switch .slider {
+    position: absolute; inset: 0;
+    background: #2a2a30;
+    border-radius: 12px;
+    transition: 0.2s;
+  }
+  .switch .slider::before {
+    content: "";
+    position: absolute;
+    width: 18px; height: 18px;
+    left: 3px; top: 3px;
+    background: #fff; border-radius: 50%;
+    transition: 0.2s;
+  }
+  .switch input:checked + .slider { background: #4e8cff; }
+  .switch input:checked + .slider::before { transform: translateX(20px); }
+  .switch input:disabled + .slider { opacity: 0.4; cursor: not-allowed; }
+
+  .modal-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #222;
+  }
+  .modal-footer .count { color: #888; font-size: 13px; }
+  .modal-footer button {
+    background: #fff;
+    color: #111;
+    border: 0;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
-<header>rorr · infra/backend/frontend orchestrator</header>
-<div id="log"></div>
-<form id="form">
-  <textarea id="input" placeholder="예: dev에 테스트 S3 버킷 만들고 PR 올려줘" autofocus></textarea>
-  <button id="send">전송</button>
-</form>
+<aside>
+  <button class="new-chat" id="newChat">+ 새 대화</button>
+  <div class="recent-label">최근 대화</div>
+  <div class="recent-list" id="recentList"></div>
+  <button class="settings-btn" id="settingsBtn">⚙ MCP 도구 설정</button>
+  <div class="user-info">
+    <div class="avatar" id="userAvatar">W</div>
+    <div id="userEmail">woody@rorr.club</div>
+  </div>
+</aside>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h2>MCP 도구 설정</h2>
+    <div class="desc">사용할 도구를 선택하세요. 권한이 있는 항목만 표시됩니다.</div>
+    <div id="mcpList"></div>
+    <div class="modal-footer">
+      <span class="count" id="activeCount">활성 도구 0개</span>
+      <button id="saveSettings">저장하고 채팅 시작</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <header>
+    <div class="title" id="convoTitle">새 대화</div>
+    <div class="tags" id="convoTags"></div>
+  </header>
+
+  <div id="log"><div class="empty">메시지를 입력해 시작하세요.</div></div>
+
+  <form id="form">
+    <div class="attached" id="attached"></div>
+    <div class="input-wrap">
+      <button type="button" class="icon-btn" id="attachBtn" title="이미지 첨부">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <input type="file" id="fileInput" accept="image/*" multiple hidden>
+      <textarea id="input" placeholder="메시지를 입력하세요..." rows="1" autofocus></textarea>
+      <button type="submit" class="send-btn" id="send">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      </button>
+    </div>
+  </form>
+</main>
 
 <script>
 const log = document.getElementById("log");
 const input = document.getElementById("input");
 const form = document.getElementById("form");
 const sendBtn = document.getElementById("send");
-const history = [];
+const newChatBtn = document.getElementById("newChat");
+const recentList = document.getElementById("recentList");
+const convoTitle = document.getElementById("convoTitle");
+const convoTags = document.getElementById("convoTags");
+const fileInput = document.getElementById("fileInput");
+const attachBtn = document.getElementById("attachBtn");
+const attached = document.getElementById("attached");
 
-function addMsg(role, text) {
+const STORAGE_KEY = "rorr.chats";
+const ENABLED_KEY = "rorr.enabledMcps";
+let chats = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+let currentId = null;
+let pendingImages = []; // [{name, dataUrl, mediaType, base64}]
+let mcpCatalog = []; // [{name,label,domain,desc,configured,connected,tools}]
+let enabledMcps = new Set(JSON.parse(localStorage.getItem(ENABLED_KEY) || "null") || []);
+
+function saveChats() { localStorage.setItem(STORAGE_KEY, JSON.stringify(chats)); }
+
+function uid() { return Math.random().toString(36).slice(2, 10); }
+
+function detectTags(history) {
+  const tags = new Set();
+  const dump = JSON.stringify(history);
+  if (/infra__/.test(dump) || /terraform|EC2|RDS|ECS|S3/i.test(dump)) tags.add("infra");
+  if (/frontend__|컴포넌트|UI|React/i.test(dump)) tags.add("frontend");
+  if (/backend__|API|스키마|로직/i.test(dump)) tags.add("backend");
+  if (/web__|extension/i.test(dump)) tags.add("web");
+  return [...tags];
+}
+
+function renderTags() {
+  const chat = chats.find(c => c.id === currentId);
+  convoTags.innerHTML = "";
+  if (!chat) return;
+  for (const t of detectTags(chat.history || [])) {
+    const el = document.createElement("span");
+    el.className = "tag " + t;
+    el.textContent = t[0].toUpperCase() + t.slice(1);
+    convoTags.appendChild(el);
+  }
+}
+
+function renderRecent() {
+  recentList.innerHTML = "";
+  for (const c of chats.slice().reverse()) {
+    const el = document.createElement("div");
+    el.className = "recent-item" + (c.id === currentId ? " active" : "");
+    el.textContent = c.title || "(제목 없음)";
+    el.onclick = () => loadChat(c.id);
+    recentList.appendChild(el);
+  }
+}
+
+function blocksToHtml(blocks) {
+  if (!Array.isArray(blocks)) return escapeHtml(String(blocks ?? ""));
+  let out = "";
+  for (const b of blocks) {
+    if (b.type === "text") {
+      out += escapeHtml(b.text).replace(/(https?:\/\/\S+)/g, '<a href="$1" target="_blank">$1</a>');
+    } else if (b.type === "tool_use") {
+      out += `<div class="tool-call">🔧 ${escapeHtml(b.name)}(${escapeHtml(JSON.stringify(b.input).slice(0, 80))}…)</div>`;
+    } else if (b.type === "image" && b.source?.data) {
+      out += `<img class="img-preview" src="data:${b.source.media_type};base64,${b.source.data}">`;
+    }
+  }
+  // PR URL 발견 시 강조
+  out = out.replace(/(https:\/\/github\.com\/[^\s<]+\/pull\/\d+)/g,
+    '<div class="pr-result">✅ PR 생성: <a href="$1" target="_blank">$1</a></div>');
+  return out;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function addMsgEl(role, html) {
+  if (log.querySelector(".empty")) log.innerHTML = "";
   const el = document.createElement("div");
   el.className = "msg " + role;
-  // 링크 자동화
-  el.innerHTML = text.replace(/(https?:\/\/\S+)/g, '<a href="$1" target="_blank">$1</a>');
+  el.innerHTML = html;
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
 }
 
-function blocksToText(blocks) {
-  if (!Array.isArray(blocks)) return String(blocks ?? "");
-  return blocks
-    .map((b) => {
-      if (b.type === "text") return b.text;
-      if (b.type === "tool_use") return `[tool: ${b.name}]`;
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
+function loadChat(id) {
+  currentId = id;
+  const chat = chats.find(c => c.id === id);
+  log.innerHTML = "";
+  convoTitle.textContent = chat?.title || "새 대화";
+  if (!chat?.history?.length) {
+    log.innerHTML = '<div class="empty">메시지를 입력해 시작하세요.</div>';
+  } else {
+    for (const m of chat.history) {
+      const html = typeof m.content === "string" ? escapeHtml(m.content) : blocksToHtml(m.content);
+      addMsgEl(m.role === "user" ? "user" : "assistant", html);
+    }
+  }
+  renderRecent();
+  renderTags();
 }
 
-form.addEventListener("submit", async (e) => {
+function newChat() {
+  const id = uid();
+  chats.push({ id, title: "새 대화", history: [] });
+  saveChats();
+  loadChat(id);
+}
+
+newChatBtn.onclick = newChat;
+
+attachBtn.onclick = () => fileInput.click();
+fileInput.onchange = async () => {
+  for (const f of fileInput.files) {
+    const reader = new FileReader();
+    await new Promise((res) => { reader.onload = res; reader.readAsDataURL(f); });
+    const dataUrl = reader.result;
+    const base64 = dataUrl.split(",")[1];
+    pendingImages.push({ name: f.name, dataUrl, mediaType: f.type, base64 });
+  }
+  fileInput.value = "";
+  renderAttached();
+};
+
+function renderAttached() {
+  attached.innerHTML = "";
+  for (let i = 0; i < pendingImages.length; i++) {
+    const img = pendingImages[i];
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.innerHTML = `🖼️ ${escapeHtml(img.name)} <span class="x">×</span>`;
+    chip.querySelector(".x").onclick = () => { pendingImages.splice(i, 1); renderAttached(); };
+    attached.appendChild(chip);
+  }
+}
+
+form.onsubmit = async (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text) return;
-  addMsg("user", text);
-  history.push({ role: "user", content: text });
+  if (!text && !pendingImages.length) return;
+  if (!currentId) newChat();
+  const chat = chats.find(c => c.id === currentId);
+
+  const userContent = [];
+  for (const img of pendingImages) {
+    userContent.push({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } });
+  }
+  if (text) userContent.push({ type: "text", text });
+
+  chat.history.push({ role: "user", content: userContent });
+
+  if (chat.title === "새 대화" && text) {
+    chat.title = text.slice(0, 30);
+    convoTitle.textContent = chat.title;
+  }
+
+  // render user message (text + image previews)
+  let userHtml = "";
+  for (const img of pendingImages) userHtml += `<img class="img-preview" src="${img.dataUrl}">`;
+  if (text) userHtml += escapeHtml(text);
+  addMsgEl("user", userHtml);
+
+  pendingImages = [];
+  renderAttached();
   input.value = "";
+  input.style.height = "28px";
   sendBtn.disabled = true;
 
   try {
     const r = await fetch("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: history }),
+      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps] }),
     });
     const data = await r.json();
     if (data.error) {
-      addMsg("assistant", "에러: " + data.error);
+      addMsgEl("assistant", "에러: " + escapeHtml(data.error));
     } else {
-      const text = blocksToText(data.content);
-      addMsg("assistant", text);
-      history.push({ role: "assistant", content: data.content });
+      addMsgEl("assistant", blocksToHtml(data.content));
+      chat.history.push({ role: "assistant", content: data.content });
     }
+    saveChats();
+    renderTags();
+    renderRecent();
   } catch (e) {
-    addMsg("assistant", "에러: " + e.message);
+    addMsgEl("assistant", "에러: " + escapeHtml(e.message));
   } finally {
     sendBtn.disabled = false;
     input.focus();
   }
+};
+
+// auto-grow textarea
+input.addEventListener("input", () => {
+  input.style.height = "28px";
+  input.style.height = Math.min(input.scrollHeight, 200) + "px";
 });
 
 input.addEventListener("keydown", (e) => {
@@ -93,6 +592,90 @@ input.addEventListener("keydown", (e) => {
     form.requestSubmit();
   }
 });
+
+// Settings modal
+const modalBg = document.getElementById("modalBg");
+const settingsBtn = document.getElementById("settingsBtn");
+const mcpList = document.getElementById("mcpList");
+const activeCount = document.getElementById("activeCount");
+const saveSettings = document.getElementById("saveSettings");
+
+async function loadMcpCatalog() {
+  try {
+    const r = await fetch("/mcps");
+    mcpCatalog = await r.json();
+    // 디폴트: 처음이면 connected MCP 전부 활성
+    if (!localStorage.getItem(ENABLED_KEY)) {
+      enabledMcps = new Set(mcpCatalog.filter(m => m.connected).map(m => m.name));
+      persistEnabled();
+    }
+  } catch (e) { console.error("load /mcps fail", e); }
+}
+
+function persistEnabled() {
+  localStorage.setItem(ENABLED_KEY, JSON.stringify([...enabledMcps]));
+}
+
+function iconFor(domain) {
+  const map = { infra: "☁", frontend: "🖥", backend: "⚙", default: "🧩" };
+  return map[domain] || map.default;
+}
+
+function renderMcpList() {
+  mcpList.innerHTML = "";
+  for (const m of mcpCatalog) {
+    const row = document.createElement("div");
+    row.className = "mcp-row";
+
+    let status, statusClass;
+    if (!m.configured) { status = "비활성"; statusClass = "off"; }
+    else if (!m.connected) { status = "연결 실패"; statusClass = "warn"; }
+    else { status = "활성"; statusClass = "active"; }
+
+    const checked = enabledMcps.has(m.name) ? "checked" : "";
+    const disabled = !m.connected ? "disabled" : "";
+
+    row.innerHTML = `
+      <div class="mcp-icon">${iconFor(m.domain)}</div>
+      <div class="mcp-meta">
+        <div class="mcp-name">${escapeHtml(m.label)}</div>
+        <div class="mcp-desc">${escapeHtml(m.desc)} ${m.connected ? `· ${m.tools} tools` : ""}</div>
+      </div>
+      <span class="mcp-status ${statusClass}">${status}</span>
+      <label class="switch">
+        <input type="checkbox" data-name="${m.name}" ${checked} ${disabled}>
+        <span class="slider"></span>
+      </label>
+    `;
+    row.querySelector("input").onchange = (e) => {
+      if (e.target.checked) enabledMcps.add(m.name);
+      else enabledMcps.delete(m.name);
+      updateActiveCount();
+    };
+    mcpList.appendChild(row);
+  }
+  updateActiveCount();
+}
+
+function updateActiveCount() {
+  activeCount.textContent = `활성 도구 ${enabledMcps.size}개`;
+}
+
+settingsBtn.onclick = async () => {
+  if (!mcpCatalog.length) await loadMcpCatalog();
+  renderMcpList();
+  modalBg.classList.add("open");
+};
+saveSettings.onclick = () => {
+  persistEnabled();
+  modalBg.classList.remove("open");
+};
+modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.classList.remove("open"); };
+
+// boot
+loadMcpCatalog();
+if (chats.length === 0) newChat();
+else loadChat(chats[chats.length - 1].id);
 </script>
 </body>
 </html>
