@@ -343,6 +343,7 @@
   <div class="recent-label">최근 대화</div>
   <div class="recent-list" id="recentList"></div>
   <button class="settings-btn" id="settingsBtn">⚙ MCP 도구 설정</button>
+  <button class="settings-btn" id="statusBtn">🩺 시스템 상태</button>
   <div class="user-info">
     <div class="avatar" id="userAvatar">W</div>
     <div id="userEmail">woody@rorr.club</div>
@@ -357,6 +358,18 @@
     <div class="modal-footer">
       <span class="count" id="activeCount">활성 도구 0개</span>
       <button id="saveSettings">저장하고 채팅 시작</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="statusBg">
+  <div class="modal">
+    <h2>🩺 시스템 상태</h2>
+    <div class="desc">LLM, 자격증명, MCP 연결 상태를 한눈에 보여줍니다.</div>
+    <div id="statusBody"><div class="empty">로딩 중...</div></div>
+    <div class="modal-footer">
+      <span class="count" id="statusHint"></span>
+      <button id="statusRefresh">새로고침</button>
     </div>
   </div>
 </div>

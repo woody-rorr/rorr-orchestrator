@@ -26,6 +26,44 @@ app.get("/health", (_, res) => {
   });
 });
 
+app.get("/status", async (_, res) => {
+  const out = {
+    llm: {
+      provider: process.env.LLM_PROVIDER || "bedrock",
+      model: process.env.LLM_MODEL || "(default)",
+      region: process.env.AWS_REGION || "us-east-1",
+      profile_env: process.env.AWS_PROFILE || null,
+    },
+    runtime: {
+      mode: process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ? "ECS Task Role"
+          : process.env.AWS_PROFILE ? "Local AWS_PROFILE"
+          : "default chain",
+      ecs_metadata: process.env.ECS_CONTAINER_METADATA_URI_V4 || null,
+    },
+    mcps: listServerCatalog().map((c) => ({
+      ...c,
+      connected: !!registry[c.name],
+      tools: registry[c.name]?.tools.length ?? 0,
+      docs: registry[c.name]?.docs?.length ?? 0,
+    })),
+  };
+  // Bedrock 호출 가능 여부 라이브 체크
+  try {
+    const { BedrockRuntimeClient, InvokeModelCommand } = await import("@aws-sdk/client-bedrock-runtime");
+    const c = new BedrockRuntimeClient({ region: out.llm.region });
+    await c.send(new InvokeModelCommand({
+      modelId: out.llm.model,
+      contentType: "application/json", accept: "application/json",
+      body: JSON.stringify({ anthropic_version: "bedrock-2023-05-31", max_tokens: 1, messages: [{ role: "user", content: "x" }] }),
+    }));
+    out.llm.bedrock_ok = true;
+  } catch (e) {
+    out.llm.bedrock_ok = false;
+    out.llm.bedrock_error = e.name + ": " + e.message.slice(0, 240);
+  }
+  res.json(out);
+});
+
 // 카탈로그 + 현재 연결 상태
 app.get("/mcps", (_, res) => {
   const catalog = listServerCatalog();
