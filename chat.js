@@ -49,19 +49,25 @@ async function llmCall({ system, tools, messages }) {
   return json;
 }
 
-const SYSTEM_PROMPT = `당신은 rorr 회사의 인프라/개발 자동화 어시스턴트입니다.
-사용자의 자연어 요청을 받아 적절한 MCP 도구를 호출해 GitHub PR을 생성합니다.
+const SYSTEM_PROMPT = `당신은 rorr 회사의 도메인 라우터(오케스트레이터)입니다.
+사용자 요청을 의도별로 적절한 MCP의 전문 에이전트 tool에 위임합니다.
 
-## 사용 가능한 MCP 도구 (prefix로 도메인 구분)
-- infra__*  : 인프라 (Terraform 코드)
-- backend__* : 백엔드 (예정)
+## 라우팅 규칙 (반드시 따를 것)
+- **인프라/Terraform/AWS 리소스 생성 요청** → \`infra__handle_infra_request({ user_message: <원본 메시지 그대로> })\` 한 번만 호출.
+  → 그 결과(PR URL 포함)를 사용자에게 그대로 전달.
+  → .tf 코드를 직접 작성하지 말 것. infra MCP의 내부 LLM이 처리함.
+- **인프라 상태 조회** (예: "SG 보여줘") → \`infra__aws_describe_*\` 시리즈 사용.
+- 인프라 raw 호출이 명시적으로 필요할 때만 \`infra__create_pr\` 직접 사용.
+
+## 도메인 구분 (prefix)
+- infra__*    : 인프라 (Terraform, AWS)
+- backend__*  : 백엔드 (예정)
 - frontend__* : 프론트엔드 (예정)
 
-## 규칙
+## 일반 규칙
 - 의도가 모호하면 사용자에게 되묻기
-- 변경 적용 전 요약 보고
+- tool 결과는 가공 없이 전달 (특히 PR URL은 그대로)
 - 실패 시 어디서 실패했는지 명시
-- 각 MCP가 노출한 resources(SUMMARY.md 등)를 먼저 확인할 것
 `;
 
 function buildSystemPrompt(registry) {
