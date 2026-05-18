@@ -1,6 +1,6 @@
-// Claude Code CLI를 spawn해서 LLM + MCP 라우팅을 위임.
+// Claude Code CLI spawn으로 LLM + MCP 라우팅 처리.
 // 인증: ~/.claude/.credentials.json (entrypoint.sh가 SSM에서 복원)
-// MCP: 임시 .mcp.json을 만들어서 --mcp-config로 전달 → CLI가 자동 라우팅/툴 호출
+// 사용자별 GitHub 권한: .mcp.json의 headers에 Authorization 주입 → 도메인 MCP가 전파
 
 import { spawn } from "child_process";
 import fs from "fs";
@@ -9,7 +9,7 @@ import path from "path";
 import { listServerCatalog } from "./mcpRegistry.js";
 
 const TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS || "300000", 10);
-const MODEL = process.env.LLM_MODEL || "";  // 비우면 CLI 기본
+const MODEL = process.env.LLM_MODEL || "";
 
 console.log(`[llm] provider=claude-code model=${MODEL || "(default)"}`);
 
@@ -27,18 +27,19 @@ const SYSTEM_PROMPT = `당신은 rorr 회사의 도메인 라우터입니다.
 - 실패 시 어디서 실패했는지 명시
 `;
 
-// 카탈로그에서 configured URL들을 모아 .mcp.json 빌드
-function buildMcpConfig() {
+function buildMcpConfig({ userToken } = {}) {
   const servers = {};
   for (const c of listServerCatalog()) {
-    const url = process.env[c.urlEnv ?? ""] ?? c.url;
-    if (!url) continue;
-    servers[c.name] = { type: "http", url };
+    if (!c.url) continue;
+    const entry = { type: "http", url: c.url };
+    if (userToken) {
+      entry.headers = { Authorization: `Bearer ${userToken}` };
+    }
+    servers[c.name] = entry;
   }
   return { mcpServers: servers };
 }
 
-// 메시지 배열을 단일 프롬프트로 직렬화 (CLI -p에 넘기기 위함)
 function serializeMessages(messages) {
   const parts = [];
   for (const m of messages) {
@@ -54,20 +55,19 @@ function serializeMessages(messages) {
   return parts.join("\n\n");
 }
 
-export async function runChat({ messages /*, registry */ }) {
+export async function runChat({ messages, userToken }) {
   const prompt = serializeMessages(messages);
-  const mcpConfig = buildMcpConfig();
+  const mcpConfig = buildMcpConfig({ userToken });
 
-  // 임시 .mcp.json
   const tmpFile = path.join(os.tmpdir(), `mcp-${process.pid}-${Date.now()}.json`);
-  fs.writeFileSync(tmpFile, JSON.stringify(mcpConfig));
+  fs.writeFileSync(tmpFile, JSON.stringify(mcpConfig), { mode: 0o600 });
 
   const args = [
     "-p", prompt,
     "--output-format", "json",
     "--append-system-prompt", SYSTEM_PROMPT,
     "--mcp-config", tmpFile,
-    "--dangerously-skip-permissions", // ECS 환경, 자체 격리됨
+    "--dangerously-skip-permissions",
   ];
   if (MODEL) args.push("--model", MODEL);
 
@@ -77,7 +77,7 @@ export async function runChat({ messages /*, registry */ }) {
 
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      finalize({ error: `claude CLI timeout (${TIMEOUT_MS}ms)` });
+      finalize({ final: [{ type: "text", text: `claude CLI timeout (${TIMEOUT_MS}ms)` }] });
     }, TIMEOUT_MS);
 
     let resolved = false;
@@ -98,7 +98,6 @@ export async function runChat({ messages /*, registry */ }) {
       if (code !== 0) {
         return finalize({ final: [{ type: "text", text: `claude exited ${code}: ${stderr || stdout}` }] });
       }
-      // --output-format json: { type: "result", subtype: "success", result: "<text>" }
       try {
         const parsed = JSON.parse(stdout.trim());
         const text = parsed.result ?? stdout;

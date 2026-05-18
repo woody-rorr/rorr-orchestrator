@@ -344,9 +344,13 @@
   <div class="recent-list" id="recentList"></div>
   <button class="settings-btn" id="settingsBtn">⚙ MCP 도구 설정</button>
   <button class="settings-btn" id="statusBtn">🩺 시스템 상태</button>
-  <div class="user-info">
-    <div class="avatar" id="userAvatar">W</div>
-    <div id="userEmail">woody@rorr.club</div>
+  <div class="user-info" id="userInfo">
+    <img class="avatar" id="userAvatar" alt="" style="width:28px;height:28px;border-radius:50%">
+    <div style="flex:1">
+      <div id="userName" style="font-size:13px;color:#ccc">…</div>
+      <div id="userLogin" style="font-size:11px;color:#666"></div>
+    </div>
+    <button id="logoutBtn" title="로그아웃" style="background:transparent;color:#888;border:0;cursor:pointer;font-size:16px">⏻</button>
   </div>
 </aside>
 
@@ -685,7 +689,24 @@ saveSettings.onclick = () => {
 };
 modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.classList.remove("open"); };
 
+// 인증 체크 + 사용자 정보
+async function loadMe() {
+  try {
+    const r = await fetch("/me");
+    if (!r.ok) { window.location.href = "/login.html"; return; }
+    const me = await r.json();
+    document.getElementById("userName").textContent = me.name || me.login;
+    document.getElementById("userLogin").textContent = "@" + me.login;
+    if (me.avatar) document.getElementById("userAvatar").src = me.avatar;
+  } catch { window.location.href = "/login.html"; }
+}
+document.getElementById("logoutBtn").onclick = async () => {
+  await fetch("/auth/logout", { method: "POST" });
+  window.location.href = "/login.html";
+};
+
 // boot
+loadMe();
 loadMcpCatalog();
 if (chats.length === 0) newChat();
 else loadChat(chats[chats.length - 1].id);
