@@ -1,123 +1,111 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
-import { callTool, flattenTools } from "./mcpRegistry.js";
+// Claude Code CLI를 spawn해서 LLM + MCP 라우팅을 위임.
+// 인증: ~/.claude/.credentials.json (entrypoint.sh가 SSM에서 복원)
+// MCP: 임시 .mcp.json을 만들어서 --mcp-config로 전달 → CLI가 자동 라우팅/툴 호출
 
-const PROVIDER = process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? "anthropic" : "bedrock");
-const AWS_REGION = process.env.AWS_REGION || "us-east-1";
-const AWS_PROFILE = process.env.AWS_PROFILE;  // 로컬에서만 사용; ECS에선 비어 있어야 함
+import { spawn } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { listServerCatalog } from "./mcpRegistry.js";
 
-const MODEL = process.env.LLM_MODEL ||
-  (PROVIDER === "bedrock"
-    ? "anthropic.claude-3-5-sonnet-20241022-v2:0"
-    : "claude-opus-4-7");
+const TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS || "300000", 10);
+const MODEL = process.env.LLM_MODEL || "";  // 비우면 CLI 기본
 
-console.log(`[llm] provider=${PROVIDER} model=${MODEL} profile=${AWS_PROFILE || "(default chain)"}`);
+console.log(`[llm] provider=claude-code model=${MODEL || "(default)"}`);
 
-const anthropic = PROVIDER === "anthropic" ? new Anthropic() : null;
-// AWS SDK 기본 자격증명 체인 사용:
-// - 로컬: AWS_PROFILE 환경변수 자동 인식 (~/.aws/credentials)
-// - ECS:  컨테이너 자격증명(Task Role) 자동 인식
-const bedrock = PROVIDER === "bedrock"
-  ? new BedrockRuntimeClient({ region: AWS_REGION })
-  : null;
-
-async function llmCall({ system, tools, messages }) {
-  if (PROVIDER === "anthropic") {
-    return await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 8192,
-      system,
-      tools,
-      messages,
-    });
-  }
-  const body = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: 8192,
-    system,
-    tools,
-    messages,
-  };
-  const cmd = new InvokeModelCommand({
-    modelId: MODEL,
-    contentType: "application/json",
-    accept: "application/json",
-    body: JSON.stringify(body),
-  });
-  const res = await bedrock.send(cmd);
-  const json = JSON.parse(new TextDecoder().decode(res.body));
-  return json;
-}
-
-const SYSTEM_PROMPT = `당신은 rorr 회사의 도메인 라우터(오케스트레이터)입니다.
+const SYSTEM_PROMPT = `당신은 rorr 회사의 도메인 라우터입니다.
 사용자 요청을 의도별로 적절한 MCP의 전문 에이전트 tool에 위임합니다.
 
-## 라우팅 규칙 (반드시 따를 것)
-- **인프라/Terraform/AWS 리소스 생성 요청** → \`infra__handle_infra_request({ user_message: <원본 메시지 그대로> })\` 한 번만 호출.
-  → 그 결과(PR URL 포함)를 사용자에게 그대로 전달.
-  → .tf 코드를 직접 작성하지 말 것. infra MCP의 내부 LLM이 처리함.
-- **인프라 상태 조회** (예: "SG 보여줘") → \`infra__aws_describe_*\` 시리즈 사용.
-- 인프라 raw 호출이 명시적으로 필요할 때만 \`infra__create_pr\` 직접 사용.
-
-## 도메인 구분 (prefix)
-- infra__*    : 인프라 (Terraform, AWS)
-- backend__*  : 백엔드 (예정)
-- frontend__* : 프론트엔드 (예정)
+## 라우팅 규칙
+- 인프라/Terraform/AWS → infra MCP의 handle_infra_request 호출
+- 인프라 상태 조회 → infra MCP의 aws_describe_* 시리즈
+- 백엔드/프론트엔드 작업 → 해당 도메인 MCP 사용 (있을 경우)
 
 ## 일반 규칙
-- 의도가 모호하면 사용자에게 되묻기
-- tool 결과는 가공 없이 전달 (특히 PR URL은 그대로)
+- 의도 모호 시 사용자에게 되묻기
+- tool 결과(PR URL 등)는 가공 없이 사용자에게 전달
 - 실패 시 어디서 실패했는지 명시
 `;
 
-function buildSystemPrompt(registry) {
-  const sections = [SYSTEM_PROMPT];
-  for (const [serverName, { docs }] of Object.entries(registry)) {
-    if (!docs?.length) continue;
-    sections.push(`\n## ${serverName} MCP 가이드 문서\n다음 문서들은 ${serverName} 도메인 작업 시 **반드시 따라야 하는 회사 규칙**입니다.\n`);
-    for (const d of docs) {
-      sections.push(`### ${d.name || d.uri}\n\n${d.text}\n`);
-    }
+// 카탈로그에서 configured URL들을 모아 .mcp.json 빌드
+function buildMcpConfig() {
+  const servers = {};
+  for (const c of listServerCatalog()) {
+    const url = process.env[c.urlEnv ?? ""] ?? c.url;
+    if (!url) continue;
+    servers[c.name] = { type: "http", url };
   }
-  return sections.join("\n");
+  return { mcpServers: servers };
 }
 
-export async function runChat({ messages, registry }) {
-  const { tools, routing } = flattenTools(registry);
-  const system = buildSystemPrompt(registry);
-  let history = [...messages];
-
-  for (let step = 0; step < 10; step++) {
-    const res = await llmCall({ system, tools, messages: history });
-
-    history.push({ role: "assistant", content: res.content });
-
-    if (res.stop_reason !== "tool_use") {
-      return { final: res.content, history };
+// 메시지 배열을 단일 프롬프트로 직렬화 (CLI -p에 넘기기 위함)
+function serializeMessages(messages) {
+  const parts = [];
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      parts.push(`[${m.role}] ${m.content}`);
+      continue;
     }
-
-    const toolResults = [];
-    for (const block of res.content) {
-      if (block.type !== "tool_use") continue;
-      console.log(`[tool] ${block.name}`, JSON.stringify(block.input).slice(0, 300));
-      try {
-        const result = await callTool(registry, routing, block.name, block.input);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: result.content,
-        });
-      } catch (e) {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: [{ type: "text", text: `Error: ${e.message}` }],
-          is_error: true,
-        });
-      }
+    for (const block of m.content ?? []) {
+      if (block.type === "text") parts.push(`[${m.role}] ${block.text}`);
+      else if (block.type === "image") parts.push(`[${m.role}] (image attached)`);
     }
-    history.push({ role: "user", content: toolResults });
   }
+  return parts.join("\n\n");
+}
 
-  return { final: [{ type: "text", text: "최대 step 초과" }], history };
+export async function runChat({ messages /*, registry */ }) {
+  const prompt = serializeMessages(messages);
+  const mcpConfig = buildMcpConfig();
+
+  // 임시 .mcp.json
+  const tmpFile = path.join(os.tmpdir(), `mcp-${process.pid}-${Date.now()}.json`);
+  fs.writeFileSync(tmpFile, JSON.stringify(mcpConfig));
+
+  const args = [
+    "-p", prompt,
+    "--output-format", "json",
+    "--append-system-prompt", SYSTEM_PROMPT,
+    "--mcp-config", tmpFile,
+    "--dangerously-skip-permissions", // ECS 환경, 자체 격리됨
+  ];
+  if (MODEL) args.push("--model", MODEL);
+
+  return new Promise((resolve) => {
+    let stdout = "", stderr = "";
+    const child = spawn("claude", args, { stdio: ["ignore", "pipe", "pipe"] });
+
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      finalize({ error: `claude CLI timeout (${TIMEOUT_MS}ms)` });
+    }, TIMEOUT_MS);
+
+    let resolved = false;
+    function finalize(out) {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      try { fs.unlinkSync(tmpFile); } catch {}
+      resolve(out);
+    }
+
+    child.stdout.on("data", (d) => { stdout += d.toString(); });
+    child.stderr.on("data", (d) => { stderr += d.toString(); });
+
+    child.on("error", (e) => finalize({ final: [{ type: "text", text: `claude spawn error: ${e.message}` }] }));
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        return finalize({ final: [{ type: "text", text: `claude exited ${code}: ${stderr || stdout}` }] });
+      }
+      // --output-format json: { type: "result", subtype: "success", result: "<text>" }
+      try {
+        const parsed = JSON.parse(stdout.trim());
+        const text = parsed.result ?? stdout;
+        finalize({ final: [{ type: "text", text }] });
+      } catch {
+        finalize({ final: [{ type: "text", text: stdout || "(empty)" }] });
+      }
+    });
+  });
 }
