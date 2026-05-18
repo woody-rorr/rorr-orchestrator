@@ -11,7 +11,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-COPY index.js chat.js mcpRegistry.js entrypoint.sh ./
+COPY index.js chat.js mcpRegistry.js auth.js session.js ssm.js entrypoint.sh ./
 COPY public ./public
 
 RUN chmod +x entrypoint.sh
