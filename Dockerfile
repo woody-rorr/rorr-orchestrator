@@ -14,7 +14,8 @@ RUN npm ci --omit=dev
 COPY index.js chat.js mcpRegistry.js auth.js session.js ssm.js entrypoint.sh ./
 COPY public ./public
 
-RUN chmod +x entrypoint.sh
+RUN chmod +x entrypoint.sh && chown -R node:node /app
 
+USER node
 EXPOSE 4000
 CMD ["/bin/sh", "/app/entrypoint.sh"]

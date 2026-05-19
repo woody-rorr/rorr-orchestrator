@@ -1,10 +1,12 @@
 # rorr-orchestrator
 
-회사 자체 ChatGPT-스타일 웹 UI + Bedrock(Claude) + 여러 MCP 서버 연결 백엔드.
+회사 자체 ChatGPT-스타일 웹 UI + Claude Code CLI (OAuth) + 여러 MCP 서버 연결 백엔드.
 브라우저에서 자연어 프롬프트를 받아 적절한 MCP의 tool을 호출, GitHub PR을 자동 생성합니다.
 
 > ## 🧭 구조
-> 사용자 → 오케스트레이터(이 서버, LLM 라우터) → 각 도메인 MCP(자체 LLM 내장) → GitHub PR
+> 사용자(GitHub OAuth 로그인) → 오케스트레이터(이 서버, claude CLI 라우터) → 각 도메인 MCP(자체 LLM 내장) → GitHub PR
+>
+> LLM은 Claude OAuth credentials(SSM SecureString)을 entrypoint가 컨테이너에 주입 → `claude` CLI가 사용. **Bedrock 미사용.**
 
 ## 리소스 네이밍 (고정, 실제 배포된 값)
 
@@ -20,17 +22,16 @@
 | 컨테이너 포트 | `4000` |
 | **CloudWatch 로그 그룹** | **`/ecs/rorr-mcp-orchestrator`** |
 | **Task Execution Role** | **`rorr-mcp-orchestrator-execution`** |
-| **Task Role** | **`rorr-mcp-orchestrator-task`** (Bedrock InvokeModel 권한) |
+| **Task Role** | **`rorr-mcp-orchestrator-task`** (SSM GetParameter 권한 — Claude OAuth + 사용자별 GitHub 토큰) |
 
 ## 환경변수 (ECS Task)
 
 | 변수 | 값/설명 |
 |---|---|
 | `PORT` | `4000` |
-| `LLM_PROVIDER` | `bedrock` |
 | `AWS_REGION` | `us-east-1` |
-| `LLM_MODEL` | `us.anthropic.claude-opus-4-5-20251101-v1:0` (또는 haiku) |
-| `DEFAULT_USER_ID` | 임시 신원 (인증 붙기 전) |
+| `SSM_CLAUDE_PATH` | (선택) Claude OAuth credentials SSM 경로. 기본 `/rorr-mcp-infra/claude-credentials` |
+| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth App (Sign in with GitHub) |
 | `MCP_INFRA_URL` | `http://mcp-agents-staging-alb-249976027.us-east-1.elb.amazonaws.com:5010/mcp` |
 | `MCP_FRONTEND_WEB_URL` | `http://...:5004/mcp` (배포되면) |
 | `MCP_FRONTEND_EXT_URL` | `http://...:5006/mcp` |
@@ -42,17 +43,18 @@
 
 ```json
 {
-  "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+  "Action": ["ssm:GetParameter", "ssm:PutParameter"],
   "Resource": [
-    "arn:aws:bedrock:*:239460481239:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-    "arn:aws:bedrock:*:239460481239:inference-profile/us.anthropic.claude-opus-4-5-20251101-v1:0",
-    "arn:aws:bedrock:*::foundation-model/anthropic.claude-opus-4-5-20251101-v1:0"
+    "arn:aws:ssm:us-east-1:239460481239:parameter/rorr-mcp-infra/claude-credentials",
+    "arn:aws:ssm:us-east-1:239460481239:parameter/rorr/session/secret",
+    "arn:aws:ssm:us-east-1:239460481239:parameter/rorr/github/oauth/*"
   ]
 }
 ```
 
-⚠️ **region은 반드시 `*` (wildcard)**: cross-region inference profile (`us.*`)이 호출을 us-east-1/2/west-2 중 자동 라우팅하므로 단일 region 지정 시 거부됨.
+- Claude OAuth credentials: 부팅 시 entrypoint가 SSM에서 받아 `~/.claude/.credentials.json`에 주입 → `claude` CLI 사용.
+- 세션 비밀키: 쿠키 서명용 HMAC secret.
+- GitHub OAuth 사용자 토큰: 로그인한 사용자별 access token을 `/rorr/github/oauth/<login>/access_token`에 저장/조회.
 
 ## 네트워크 (필수 SG 규칙)
 
@@ -75,8 +77,13 @@
 ## 라우팅 동작 (chat.js 시스템 프롬프트)
 
 - 인프라 요청 → `infra__handle_infra_request({ user_message })` 한 번만 호출 → infra MCP의 자체 LLM이 .tf + PR 처리
-- 상태 조회 → `infra__aws_describe_*` 시리즈
-- raw 호출 → `infra__create_pr` (직접 .tf 명시할 때)
+- 상태 조회 → `infra__aws_describe_*` 시리즈 (read-only)
+
+### 절대 규칙 (orchestrator의 system prompt에 박혀 있음)
+- 코드(.tf 등) 직접 생성 금지 → 도메인 MCP에 위임
+- GitHub API/PR 직접 호출 금지 → 도메인 MCP가 내부에서 처리
+- 도메인 MCP 결과는 가공 없이 사용자에게 그대로 전달
+- 다중 도메인 요청은 도메인별로 순차 호출 (mega 요청 시도 금지)
 
 ## 향후 추가 (도메인 MCP 패턴)
 
@@ -85,14 +92,15 @@
 - `backend-api__handle_backend_request`
 - 등
 
-오케스트레이터는 라우터로만, 도메인 지식/LLM은 각 MCP가 보유.
+오케스트레이터는 라우터로만, **도메인 지식·LLM·GitHub 클라이언트(자기 repo 1:1)는 각 도메인 MCP가 보유.**
+→ orchestrator는 github MCP 직접 호출 안 함. 도메인 MCP가 자기 repo에 PR 띄움.
 
 ## 운영 흔히 발생하는 이슈
 
 | 증상 | 원인 | 해결 |
 |---|---|---|
-| `Could not resolve credentials using profile: [rorr-dev]` | 코드에 `fromIni({profile})` 하드코딩, ECS엔 `~/.aws/credentials` 없음 | default credential chain 사용 (코드 `new BedrockRuntimeClient({ region })`만) |
-| `bedrock:InvokeModel ... not authorized on ... us-east-2::...` | inference profile cross-region 라우팅, IAM region 고정 | IAM 정책 region을 `*`로 |
+| `claude exited 1: ... 401 Invalid authentication credentials` | SSM의 Claude OAuth access/refresh 토큰 만료 | 로컬에서 `claude` 한번 실행해 갱신 후 macOS Keychain → SSM put-parameter → ECS force-new-deployment |
+| `--dangerously-skip-permissions cannot be used with root/sudo` | 컨테이너가 root로 실행 중 | Dockerfile에 `USER node` (또는 `RUN useradd ...`) 추가, credentials 경로도 `$HOME/.claude`로 |
 | `Server not initialized` (orchestrator → MCP) | MCP 재배포 후 오케스트레이터의 옛 세션 ID 무효 | 오케스트레이터 force-new-deployment |
 | Target Health: unhealthy | SG에서 ALB→Task 포트 4000 차단 | Task SG에 인바운드 TCP 4000 from ALB SG 추가 |
 | `LoadBalancerNotFound` (Terraform) | ARN 하드코딩 (DNS suffix와 ARN suffix 다름) | `data "aws_lb" "shared" { name = "..." }` 사용 |
