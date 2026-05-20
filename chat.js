@@ -7,9 +7,36 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { listServerCatalog } from "./mcpRegistry.js";
+import { getSsm, putSsm } from "./ssm.js";
 
 const TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS || "300000", 10);
 const MODEL = process.env.LLM_MODEL || "";
+const SSM_CLAUDE_PATH = process.env.SSM_CLAUDE_PATH || "/rorr-mcp-infra/claude-credentials";
+const CLAUDE_CREDS_FILE = path.join(os.homedir(), ".claude", ".credentials.json");
+
+let _syncing = false;
+async function syncClaudeCredentialsIfRefreshed() {
+  if (_syncing) return;
+  _syncing = true;
+  try {
+    if (!fs.existsSync(CLAUDE_CREDS_FILE)) return;
+    const localText = fs.readFileSync(CLAUDE_CREDS_FILE, "utf8");
+    const localExp = JSON.parse(localText)?.claudeAiOauth?.expiresAt;
+    if (!localExp) return;
+
+    const remote = await getSsm(SSM_CLAUDE_PATH, { cached: false });
+    const remoteExp = remote ? (JSON.parse(remote)?.claudeAiOauth?.expiresAt ?? 0) : 0;
+
+    if (localExp > remoteExp) {
+      await putSsm(SSM_CLAUDE_PATH, localText);
+      console.log(`[claude-sync] SSM updated (expiresAt ${remoteExp} → ${localExp})`);
+    }
+  } catch (e) {
+    console.warn("[claude-sync] failed:", e.message);
+  } finally {
+    _syncing = false;
+  }
+}
 
 console.log(`[llm] provider=claude-code model=${MODEL || "(default)"}`);
 
@@ -105,6 +132,7 @@ export async function runChat({ messages, userToken }) {
       resolved = true;
       clearTimeout(timer);
       try { fs.unlinkSync(tmpFile); } catch {}
+      syncClaudeCredentialsIfRefreshed().catch(() => {});
       resolve(out);
     }
 
