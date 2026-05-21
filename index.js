@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { spawn } from "child_process";
 
 import { listServerCatalog } from "./mcpRegistry.js";
+import { probeAll } from "./mcpProbe.js";
 import { runChat } from "./chat.js";
 import authRouter from "./auth.js";
 import { verifySessionToken, parseCookies } from "./session.js";
@@ -82,8 +83,18 @@ app.get("/status", async (_, res) => {
   res.json(out);
 });
 
-app.get("/mcps", (_, res) => {
-  res.json(listServerCatalog());
+// 5초간 캐시 (UI가 자주 호출하므로 매번 probe하면 느림)
+let _mcpsCache = { ts: 0, data: null };
+app.get("/mcps", async (_, res) => {
+  const now = Date.now();
+  if (_mcpsCache.data && now - _mcpsCache.ts < 5000) return res.json(_mcpsCache.data);
+  try {
+    const data = await probeAll(listServerCatalog());
+    _mcpsCache = { ts: now, data };
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post("/chat", requireAuth, attachUserToken, async (req, res) => {
