@@ -2,7 +2,7 @@ FROM node:20-bookworm-slim
 
 # AWS CLI (entrypoint이 SSM 호출에 사용) + Claude Code CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl unzip ca-certificates awscli \
+    curl unzip ca-certificates awscli git \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g @anthropic-ai/claude-code
 
