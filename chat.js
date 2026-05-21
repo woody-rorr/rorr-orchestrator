@@ -38,7 +38,7 @@ async function syncClaudeCredentialsIfRefreshed() {
   }
 }
 
-console.log(`[llm] provider=claude-code model=${MODEL || "(default)"}`);
+// console.log(`[llm] provider=claude-code model=${MODEL || "(default)"}`);
 
 const SYSTEM_PROMPT = `# 역할
 당신은 rorr 회사의 **도메인 라우터**입니다. 코드를 직접 생성하지 않고, 도메인 MCP의 전문 에이전트 tool을 호출해 위임합니다.
