@@ -17,4 +17,12 @@ else
   echo "[entrypoint] WARN: SSM $SSM_CLAUDE empty — claude CLI may fail"
 fi
 
+# === GitHub PAT for source repo (piecomp/backend-lol-api-v3 read) ===
+SSM_SRC_PAT="/backend-migration-mcp/github-source-token"
+SRC_PAT=$(aws ssm get-parameter --name "$SSM_SRC_PAT" --with-decryption --region "$REGION" --query 'Parameter.Value' --output text 2>/dev/null || true)
+if [ -n "$SRC_PAT" ]; then
+  export GITHUB_PAT="$SRC_PAT"
+  echo "[entrypoint] GITHUB_PAT loaded (source repo PAT)"
+fi
+
 exec node /app/index.js
