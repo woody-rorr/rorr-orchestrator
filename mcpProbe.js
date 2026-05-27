@@ -17,8 +17,13 @@ async function probeOne(entry) {
       connectP,
       new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("probe timeout")), PROBE_TIMEOUT_MS); }),
     ]);
-    const { tools } = await client.listTools();
-    return { ...entry, connected: true, tools: tools.length, toolNames: tools.map(t => t.name) };
+    // initialize 성공 = connected. listTools가 스키마 파싱에 실패해도 연결은 정상으로 본다.
+    try {
+      const { tools } = await client.listTools();
+      return { ...entry, connected: true, tools: tools.length, toolNames: tools.map(t => t.name) };
+    } catch (e) {
+      return { ...entry, connected: true, tools: 0, toolNames: [], schemaWarning: e.message };
+    }
   } catch (e) {
     return { ...entry, connected: false, tools: 0, error: e.message };
   } finally {
