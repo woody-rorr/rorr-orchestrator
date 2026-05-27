@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Claude OAuth 토큰을 macOS Keychain → SSM에 업로드하고 Claude를 쓰는 모든 MCP 서비스를 재배포.
+# Claude OAuth 토큰을 macOS Keychain → SSM(여러 경로)에 업로드하고
+# Claude를 쓰는 모든 MCP 서비스를 재배포.
 #
 # 전제:
 #   1. 사전에 로컬에서 `claude`를 한 번 실행해 OAuth 갱신을 완료한 상태일 것.
@@ -12,12 +13,19 @@ set -euo pipefail
 
 AWS_PROFILE="${AWS_PROFILE:-rorr-dev}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
-SSM_PATH="${SSM_CLAUDE_PATH:-/rorr-mcp-infra/claude-credentials}"
 CLUSTER="${ECS_CLUSTER:-mcp-agents-staging-cluster}"
 
+# 동일한 Claude OAuth credentials를 동기화할 SSM 경로 목록
+SSM_PATHS=(
+  "/rorr-mcp-infra/claude-credentials"
+  "/backend-migration-mcp/claude-credentials"
+)
+
+# (service, task-family) 쌍
 SERVICES=(
-  "rorr-mcp-orchestrator-service"
-  "rorr-mcp-infra-service"
+  "rorr-mcp-orchestrator-service:rorr-mcp-orchestrator-task"
+  "rorr-mcp-infra-service:rorr-mcp-infra-task"
+  "backend-migration-mcp-service:backend-migration-mcp-task"
 )
 
 export AWS_PROFILE AWS_REGION
@@ -49,35 +57,26 @@ if [[ -n "$EXPIRES_AT" ]]; then
   echo "  → expiresAt=$EXPIRES_AT (유효)"
 fi
 
-echo "▶ SSM put-parameter: $SSM_PATH"
-aws ssm put-parameter \
-  --name "$SSM_PATH" \
-  --type SecureString \
-  --value "$CREDS" \
-  --overwrite \
-  --region "$AWS_REGION" \
-  --query '{Version:Version,Tier:Tier}' \
-  --output table
-
-declare -A SERVICE_TO_FAMILY=(
-  ["rorr-mcp-orchestrator-service"]="rorr-mcp-orchestrator-task"
-  ["rorr-mcp-infra-service"]="rorr-mcp-infra-task"
-)
-
-for SVC in "${SERVICES[@]}"; do
-  FAMILY="${SERVICE_TO_FAMILY[$SVC]}"
-  LATEST_TD=$(aws ecs list-task-definitions \
-    --family-prefix "$FAMILY" \
+for SSM_PATH in "${SSM_PATHS[@]}"; do
+  echo "▶ SSM put-parameter: $SSM_PATH"
+  aws ssm put-parameter \
+    --name "$SSM_PATH" \
+    --type SecureString \
+    --value "$CREDS" \
+    --overwrite \
     --region "$AWS_REGION" \
-    --sort DESC \
-    --max-items 1 \
-    --query 'taskDefinitionArns[0]' \
-    --output text)
-  echo "▶ ECS update-service: $SVC → ${LATEST_TD##*/}"
+    --query '{Version:Version,Tier:Tier}' \
+    --output table
+done
+
+SERVICE_NAMES=()
+for ENTRY in "${SERVICES[@]}"; do
+  SVC="${ENTRY%%:*}"
+  SERVICE_NAMES+=("$SVC")
+  echo "▶ ECS update-service: $SVC (force-new-deployment)"
   aws ecs update-service \
     --cluster "$CLUSTER" \
     --service "$SVC" \
-    --task-definition "$LATEST_TD" \
     --force-new-deployment \
     --region "$AWS_REGION" \
     --query 'service.{name:serviceName,td:taskDefinition,desired:desiredCount}' \
@@ -87,11 +86,11 @@ done
 echo "▶ 배포 진행 상태 (1회 스냅샷)"
 aws ecs describe-services \
   --cluster "$CLUSTER" \
-  --services "${SERVICES[@]}" \
+  --services "${SERVICE_NAMES[@]}" \
   --region "$AWS_REGION" \
   --query 'services[].{name:serviceName,deployments:deployments[].{status:status,rollout:rolloutState,running:runningCount,desired:desiredCount}}' \
   --output json
 
 echo "✅ 완료. 2~3분 후 채팅 재시도하세요."
 echo "   상태 재확인:"
-echo "   aws ecs describe-services --cluster $CLUSTER --services ${SERVICES[*]} --region $AWS_REGION --query 'services[].{name:serviceName,rollout:deployments[0].rolloutState,running:deployments[0].runningCount}'"
+echo "   aws ecs describe-services --cluster $CLUSTER --services ${SERVICE_NAMES[*]} --region $AWS_REGION --query 'services[].{name:serviceName,rollout:deployments[0].rolloutState,running:deployments[0].runningCount}'"

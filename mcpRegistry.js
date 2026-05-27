@@ -4,6 +4,7 @@
 const SERVERS = [
   { name: "infra",     label: "Infra MCP",             domain: "infra",     desc: "Terraform 코드 생성, 인프라 변경",                              urlEnv: "MCP_INFRA_URL" },
   { name: "migration", label: "Backend Migration MCP", domain: "migration", desc: "Lambda(Serverless) → ECS(Express) 코드 마이그레이션",            urlEnv: "MCP_MIGRATION_URL" },
+  { name: "web",       label: "Web MCP",               domain: "web",       desc: "웹 도메인 MCP",                                                  urlEnv: "MCP_WEB_URL" },
 ];
 
 export function listServerCatalog() {
@@ -13,3 +14,9 @@ export function listServerCatalog() {
     configured: !!process.env[urlEnv],
   }));
 }
+
+
+
+
+
+ 
