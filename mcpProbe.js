@@ -9,7 +9,9 @@ async function probeOne(entry) {
   const client = new Client({ name: "rorr-orchestrator-probe", version: "0.1.0" });
   let timer;
   try {
-    const transport = new StreamableHTTPClientTransport(new URL(entry.url));
+    const transport = new StreamableHTTPClientTransport(new URL(entry.url), {
+      requestInit: entry.staticHeaders ? { headers: entry.staticHeaders } : undefined,
+    });
     const connectP = client.connect(transport);
     await Promise.race([
       connectP,

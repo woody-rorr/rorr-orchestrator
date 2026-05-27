@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'index.js'
-      - 'chat.js'
-      - 'mcpRegistry.js'
+      - '*.js'
       - 'public/**'
+      - 'scripts/**'
       - 'Dockerfile'
+      - 'entrypoint.sh'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/deploy.yml'
