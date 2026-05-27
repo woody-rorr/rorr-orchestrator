@@ -2,9 +2,10 @@
 // 여기는 (1) UI 카탈로그 표시 (2) chat.js가 .mcp.json 빌드용으로만 사용.
 
 const SERVERS = [
-  { name: "infra",     label: "Infra MCP",             domain: "infra",     desc: "Terraform 코드 생성, 인프라 변경",                              urlEnv: "MCP_INFRA_URL" },
-  { name: "migration", label: "Backend Migration MCP", domain: "migration", desc: "Lambda(Serverless) → ECS(Express) 코드 마이그레이션",            urlEnv: "MCP_MIGRATION_URL" },
-  { name: "web",       label: "Web MCP",               domain: "web",       desc: "웹 도메인 MCP",                                                  urlEnv: "MCP_WEB_URL" },
+  { name: "infra",     label: "Infra MCP",             domain: "infra",     desc: "Terraform 코드 생성, 인프라 변경",                                              urlEnv: "MCP_INFRA_URL" },
+  { name: "migration", label: "Backend MCP",           domain: "backend",   desc: "Lambda→Express 마이그레이션(5012) + 신규 NestJS API scaffolding(5013)",         urlEnv: "MCP_MIGRATION_URL" },
+  { name: "frontend",  label: "Frontend MCP",          domain: "frontend",  desc: "프론트엔드(웹/Next.js) 화면·컴포넌트 생성",                                      urlEnv: "MCP_FRONTEND_URL" },
+  { name: "web",       label: "Web MCP",               domain: "web",       desc: "웹 도메인 MCP (legacy)",                                                        urlEnv: "MCP_WEB_URL" },
 ];
 
 export function listServerCatalog() {

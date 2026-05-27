@@ -51,12 +51,19 @@ const SYSTEM_PROMPT = `# 역할
 5. 한 요청이 여러 도메인에 걸치면 **도메인별로 순차 호출**하고 각 결과를 모은다. 한 tool 안에서 처리하려 시도하지 않는다.
 
 # 라우팅 규칙
-| 사용자 의도 키워드 | 호출할 tool |
-|---|---|
-| AWS, Terraform, 인프라, VPC, S3, RDS, EC2, ECS, ALB, CloudFront, IAM, "dev 환경" | \`infra__handle_infra_request({ user_message })\` |
-| AWS 현재 상태/조회 (예: "VPC 보여줘", "보안그룹 확인") | \`infra__aws_describe_*\` 시리즈 (변경 X, 조회만) |
-| Lambda → ECS 마이그레이션, "변환", "Serverless → Express" | 아래 **Migration 절차** 참조 |
-| 백엔드/프론트엔드 코드 변경 | 해당 도메인 MCP (등록된 경우만) |
+| 사용자 의도 키워드 | 호출할 tool | target 레포 |
+|---|---|---|
+| AWS, Terraform, 인프라, VPC, S3, RDS, EC2, ECS, ALB, CloudFront, IAM, "dev 환경" | \`infra__handle_infra_request({ user_message })\` | infra |
+| AWS 현재 상태/조회 ("VPC 보여줘", "보안그룹 확인") | \`infra__aws_describe_*\` 시리즈 (변경 X, 조회만) | - |
+| Lambda → ECS 마이그레이션, "변환", "Serverless → Express" | 아래 **Migration 절차** 참조 | woody-rorr/backend-migration (5012) |
+| **신규 API/기능, "회원가입/로그인 만들어줘", "모듈 추가", "NestJS"** | \`migration__scaffold_new_project_api({ scope, user_message })\` | woody-rorr/backend (5013) |
+| 프론트엔드 화면/컴포넌트/Next.js | \`frontend__*\` (등록된 경우만) | - |
+
+## scaffold_new_project_api 호출 원칙
+- 한 호출 = 하나의 scope (bootstrap → app-shell → database → module:<x> → auth → tests:<x>)
+- 결과에 \`todo: [next: ...]\` 가 오면 다음 scope로 자동 연속 호출
+- 모든 scope 완료 시점에 누적 파일을 github MCP로 PR 생성 (\`woody-rorr/backend\`)
+- "신규" vs "마이그레이션" 키워드 모호하면 사용자에게 한 번만 도메인 확인
 
 # Migration 절차 (Lambda → ECS Express) — 절대 규칙 #1·#2의 예외
 migration MCP는 텍스트 변환만 하므로 orchestrator가 직접 git clone + 파일 읽기 + github MCP 호출까지 수행한다.
@@ -99,12 +106,49 @@ function buildMcpConfig({ userToken } = {}) {
   return { mcpServers: servers };
 }
 
+function extractFailedTools(parsed) {
+  // Claude CLI JSON 출력의 iterations/messages를 훑어 tool_result.is_error=true 인 항목 수집
+  const failed = [];
+  const iters = parsed?.iterations || parsed?.messages || [];
+  const toolUseById = new Map();
+
+  function walkBlocks(blocks) {
+    if (!Array.isArray(blocks)) return;
+    for (const b of blocks) {
+      if (b?.type === "tool_use" && b.id) {
+        toolUseById.set(b.id, { name: b.name, input: b.input });
+      }
+      if (b?.type === "tool_result" && b.is_error) {
+        const meta = toolUseById.get(b.tool_use_id) || { name: "(unknown)" };
+        const content = Array.isArray(b.content)
+          ? b.content.map(c => c.text || JSON.stringify(c)).join(" ")
+          : (typeof b.content === "string" ? b.content : JSON.stringify(b.content));
+        failed.push({ tool: meta.name, error: (content || "").slice(0, 500) });
+      }
+    }
+  }
+
+  for (const it of iters) {
+    walkBlocks(it?.content);
+    walkBlocks(it?.message?.content);
+  }
+  return failed;
+}
+
+function mcpServerOf(toolName) {
+  // tool 이름은 보통 `<server>__<tool>` 형태 (예: infra__handle_infra_request, migration__convert_handlers)
+  const m = String(toolName || "").match(/^([^_]+)__/);
+  return m ? m[1] : "(직접 도구)";
+}
+
 function formatClaudeOutput({ code, stdout, stderr }) {
   // 우선 stdout이 JSON이면 파싱
   let parsed = null;
   try { parsed = JSON.parse(stdout.trim()); } catch {}
 
   if (parsed && typeof parsed === "object") {
+    const failedTools = extractFailedTools(parsed);
+
     const isError = parsed.is_error === true || (parsed.api_error_status && parsed.api_error_status >= 400);
     if (isError) {
       const status = parsed.api_error_status;
@@ -124,11 +168,13 @@ function formatClaudeOutput({ code, stdout, stderr }) {
         level: "error",
         status,
         detail: reason,
+        failedTools,
         text: `❌ Claude 호출 실패 (HTTP ${status ?? "?"})${sessionId}\n   ${reason}${hint}`,
       };
     }
-    // 정상 결과
-    return { level: "ok", text: parsed.result ?? stdout };
+    // 정상 종료지만 일부 MCP tool이 실패했을 수 있음
+    const body = parsed.result ?? stdout;
+    return { level: failedTools.length ? "warn" : "ok", failedTools, text: body };
   }
 
   if (code !== 0) {
@@ -136,11 +182,12 @@ function formatClaudeOutput({ code, stdout, stderr }) {
     return {
       level: "error",
       detail,
+      failedTools: [],
       text: `❌ Claude CLI 비정상 종료 (exit=${code})\n${detail.slice(0, 2000)}`,
     };
   }
 
-  return { level: "ok", text: stdout || "(empty)" };
+  return { level: "ok", failedTools: [], text: stdout || "(empty)" };
 }
 
 function serializeMessages(messages) {
@@ -158,9 +205,13 @@ function serializeMessages(messages) {
   return parts.join("\n\n");
 }
 
-export async function runChat({ messages, userToken }) {
+export async function runChat({ messages, userToken, disabledTools = [] }) {
   const prompt = serializeMessages(messages);
   const mcpConfig = buildMcpConfig({ userToken });
+  const disabledList = Array.isArray(disabledTools) ? disabledTools.filter(Boolean) : [];
+  const dynamicSystem = disabledList.length
+    ? SYSTEM_PROMPT + `\n\n# 비활성 도구 (사용 금지)\n다음 도구는 이번 요청에서 절대 호출하지 마세요:\n${disabledList.map(t => `- ${t}`).join("\n")}`
+    : SYSTEM_PROMPT;
 
   const tmpFile = path.join(os.tmpdir(), `mcp-${process.pid}-${Date.now()}.json`);
   fs.writeFileSync(tmpFile, JSON.stringify(mcpConfig), { mode: 0o600 });
@@ -168,7 +219,7 @@ export async function runChat({ messages, userToken }) {
   const args = [
     "-p", prompt,
     "--output-format", "json",
-    "--append-system-prompt", SYSTEM_PROMPT,
+    "--append-system-prompt", dynamicSystem,
     "--mcp-config", tmpFile,
     "--dangerously-skip-permissions",
   ];
@@ -181,7 +232,7 @@ export async function runChat({ messages, userToken }) {
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       console.error(`[chat] claude CLI timeout (${TIMEOUT_MS}ms)`);
-      finalize({ final: [{ type: "text", text: `❌ Claude CLI 타임아웃 (${TIMEOUT_MS}ms)\n→ CLAUDE_TIMEOUT_MS 환경변수로 조정 가능.` }] });
+      finalize({ final: [{ type: "text", text: `❌ Claude CLI 타임아웃 (${TIMEOUT_MS}ms)\n→ CLAUDE_TIMEOUT_MS 환경변수로 조정 가능.` }], failedTools: [] });
     }, TIMEOUT_MS);
 
     let resolved = false;
@@ -199,15 +250,12 @@ export async function runChat({ messages, userToken }) {
 
     child.on("error", (e) => {
       console.error("[chat] claude spawn error:", e.message);
-      finalize({ final: [{ type: "text", text: `claude spawn error: ${e.message}` }] });
+      finalize({ final: [{ type: "text", text: `claude spawn error: ${e.message}` }], failedTools: [] });
     });
 
     child.on("close", (code) => {
       const formatted = formatClaudeOutput({ code, stdout, stderr });
-      if (formatted.level === "error") {
-        console.error(`[chat] claude failed (exit=${code}, status=${formatted.status ?? "n/a"}): ${formatted.detail}`);
-      }
-      finalize({ final: [{ type: "text", text: formatted.text }] });
+      finalize({ final: [{ type: "text", text: formatted.text }], failedTools: formatted.failedTools || [] });
     });
   });
 }

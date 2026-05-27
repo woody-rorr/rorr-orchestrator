@@ -98,11 +98,11 @@ app.get("/mcps", async (_, res) => {
 });
 
 app.post("/chat", requireAuth, attachUserToken, async (req, res) => {
-  const { messages } = req.body;
+  const { messages, disabled_tools } = req.body;
   if (!Array.isArray(messages)) return res.status(400).json({ error: "messages required" });
   try {
-    const { final } = await runChat({ messages, userToken: req.userToken });
-    res.json({ content: final });
+    const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools });
+    res.json({ content: final, failedTools: failedTools || [] });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

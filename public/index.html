@@ -242,6 +242,75 @@
   }
   .settings-btn:hover { background: #1d1d22; color: #fff; }
 
+  /* MCP error log panel */
+  .err-panel {
+    border-top: 1px solid #222;
+    margin-top: 10px;
+    padding-top: 10px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .err-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: #888; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .err-clear-btn {
+    background: transparent; border: 1px solid #333;
+    color: #aaa; font-size: 10px; padding: 2px 6px;
+    border-radius: 4px; cursor: pointer;
+  }
+  .err-clear-btn:hover { color: #fff; border-color: #555; }
+  .err-mcp-group { margin-bottom: 6px; }
+  .err-mcp-name {
+    font-size: 12px; color: #ff8a8a; font-weight: 600;
+    padding: 4px 6px; cursor: pointer;
+    background: rgba(255,80,80,0.08); border-radius: 4px;
+    display: flex; justify-content: space-between;
+  }
+  .err-mcp-items { display: none; padding: 4px 6px 0; }
+  .err-mcp-group.open .err-mcp-items { display: block; }
+  .err-item {
+    font-size: 11px; color: #d8a0a0;
+    border-left: 2px solid #803030;
+    padding: 4px 8px; margin: 4px 0;
+    background: rgba(255,80,80,0.04);
+    border-radius: 0 4px 4px 0;
+  }
+  .err-item .err-ts { color: #777; font-size: 10px; }
+  .err-item .err-tool { color: #ffb0b0; font-family: ui-monospace, monospace; }
+  .err-item .err-msg { color: #c89090; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+
+  /* Inline failed-tools box in messages */
+  .failed-box {
+    background: rgba(255, 70, 70, 0.08);
+    border: 1px solid rgba(255, 70, 70, 0.4);
+    color: #ff9a9a;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .failed-box .ftitle { font-weight: 600; margin-bottom: 4px; color: #ffb0b0; }
+  .failed-box ul { margin: 0; padding-left: 18px; }
+
+  /* Tool list inside MCP row */
+  .mcp-row { flex-wrap: wrap; }
+  .mcp-tools-wrap { width: 100%; margin-top: 8px; padding-top: 8px; border-top: 1px solid #222; display: none; }
+  .mcp-row.expanded .mcp-tools-wrap { display: block; }
+  .mcp-expand-btn {
+    background: transparent; color: #888;
+    border: 1px solid #333; border-radius: 4px;
+    font-size: 11px; padding: 2px 6px; cursor: pointer;
+  }
+  .mcp-expand-btn:hover { color: #fff; }
+  .tool-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; padding: 4px 6px; color: #ccc;
+  }
+  .tool-item input { cursor: pointer; }
+  .tool-item.disabled-tool { color: #777; text-decoration: line-through; }
+
   /* Modal */
   .modal-bg {
     position: fixed; inset: 0;
@@ -344,6 +413,13 @@
   <div class="recent-list" id="recentList"></div>
   <button class="settings-btn" id="settingsBtn">⚙ MCP 도구 설정</button>
   <button class="settings-btn" id="statusBtn">🩺 시스템 상태</button>
+  <div class="err-panel" id="errPanel">
+    <div class="err-panel-header">
+      <span>MCP 에러 로그</span>
+      <button class="err-clear-btn" id="errClearBtn">지우기</button>
+    </div>
+    <div id="errPanelBody"><div style="font-size:11px;color:#555;padding:4px">아직 에러 없음</div></div>
+  </div>
   <div class="user-info" id="userInfo">
     <img class="avatar" id="userAvatar" alt="" style="width:28px;height:28px;border-radius:50%">
     <div style="flex:1">
@@ -416,11 +492,71 @@ const attached = document.getElementById("attached");
 
 const STORAGE_KEY = "rorr.chats";
 const ENABLED_KEY = "rorr.enabledMcps";
+const DISABLED_TOOLS_KEY = "rorr.disabledTools";
+const MCP_ERRORS_KEY = "rorr.mcpErrors";
 let chats = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
 let currentId = null;
 let pendingImages = []; // [{name, dataUrl, mediaType, base64}]
-let mcpCatalog = []; // [{name,label,domain,desc,configured,connected,tools}]
+let mcpCatalog = []; // [{name,label,domain,desc,configured,connected,tools,toolNames}]
 let enabledMcps = new Set(JSON.parse(localStorage.getItem(ENABLED_KEY) || "null") || []);
+let disabledTools = new Set(JSON.parse(localStorage.getItem(DISABLED_TOOLS_KEY) || "[]"));
+let mcpErrors = JSON.parse(localStorage.getItem(MCP_ERRORS_KEY) || "{}"); // { [server]: [{tool,error,ts}] }
+const expandedMcps = new Set();
+
+function mcpServerOf(toolName) {
+  const m = String(toolName || "").match(/^([^_]+)__/);
+  return m ? m[1] : "(직접 도구)";
+}
+function persistDisabledTools() { localStorage.setItem(DISABLED_TOOLS_KEY, JSON.stringify([...disabledTools])); }
+function persistMcpErrors() { localStorage.setItem(MCP_ERRORS_KEY, JSON.stringify(mcpErrors)); }
+function recordFailedTools(list) {
+  if (!Array.isArray(list) || !list.length) return;
+  const now = Date.now();
+  for (const f of list) {
+    const srv = mcpServerOf(f.tool);
+    if (!mcpErrors[srv]) mcpErrors[srv] = [];
+    mcpErrors[srv].push({ tool: f.tool, error: f.error || "", ts: now });
+    if (mcpErrors[srv].length > 50) mcpErrors[srv] = mcpErrors[srv].slice(-50);
+  }
+  persistMcpErrors();
+  renderErrPanel();
+}
+function renderErrPanel() {
+  const body = document.getElementById("errPanelBody");
+  const servers = Object.keys(mcpErrors).filter(s => (mcpErrors[s] || []).length);
+  if (!servers.length) {
+    body.innerHTML = '<div style="font-size:11px;color:#555;padding:4px">아직 에러 없음</div>';
+    return;
+  }
+  body.innerHTML = "";
+  for (const srv of servers) {
+    const items = mcpErrors[srv];
+    const group = document.createElement("div");
+    group.className = "err-mcp-group";
+    const header = document.createElement("div");
+    header.className = "err-mcp-name";
+    header.innerHTML = `<span>${escapeHtml(srv)}</span><span>${items.length}건 ▾</span>`;
+    header.onclick = () => group.classList.toggle("open");
+    const list = document.createElement("div");
+    list.className = "err-mcp-items";
+    for (const it of items.slice().reverse()) {
+      const d = new Date(it.ts);
+      const ts = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+      const itEl = document.createElement("div");
+      itEl.className = "err-item";
+      itEl.innerHTML = `<div><span class="err-ts">${ts}</span> <span class="err-tool">${escapeHtml(it.tool)}</span></div><div class="err-msg">${escapeHtml(it.error)}</div>`;
+      list.appendChild(itEl);
+    }
+    group.appendChild(header);
+    group.appendChild(list);
+    body.appendChild(group);
+  }
+}
+document.getElementById("errClearBtn").onclick = () => {
+  mcpErrors = {};
+  persistMcpErrors();
+  renderErrPanel();
+};
 
 function saveChats() { localStorage.setItem(STORAGE_KEY, JSON.stringify(chats)); }
 
@@ -577,13 +713,31 @@ form.onsubmit = async (e) => {
     const r = await fetch("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps] }),
+      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps], disabled_tools: [...disabledTools] }),
     });
-    const data = await r.json();
-    if (data.error) {
+    const raw = await r.text();
+    let data = null;
+    try { data = JSON.parse(raw); } catch {}
+    if (!data) {
+      // JSON이 아닌 응답 (ALB 502/504 HTML, nginx 에러 등) — 본문 일부 그대로 노출
+      const snippet = raw.replace(/<[^>]+>/g, "").trim().slice(0, 300) || "(빈 응답)";
+      const hint = r.status === 504
+        ? "\n→ ALB idle timeout. Claude 응답이 60초를 초과. 더 짧게 나눠 요청하거나 ALB idle timeout 상향 필요."
+        : r.status === 502
+        ? "\n→ 오케스트레이터 컨테이너가 응답 못 함. ECS 태스크 상태/로그 확인 필요."
+        : "";
+      addMsgEl("assistant", "에러: HTTP " + r.status + " (JSON 아님)\n" + escapeHtml(snippet) + escapeHtml(hint));
+    } else if (data.error) {
       addMsgEl("assistant", "에러: " + escapeHtml(data.error));
     } else {
-      addMsgEl("assistant", blocksToHtml(data.content));
+      let html = blocksToHtml(data.content);
+      const failed = Array.isArray(data.failedTools) ? data.failedTools : [];
+      if (failed.length) {
+        const items = failed.map(f => `<li><code>${escapeHtml(f.tool)}</code> — ${escapeHtml((f.error||"").slice(0,200))}</li>`).join("");
+        html += `<div class="failed-box"><div class="ftitle">이번 응답에서 실패한 MCP 도구 ${failed.length}건</div><ul>${items}</ul></div>`;
+        recordFailedTools(failed);
+      }
+      addMsgEl("assistant", html);
       chat.history.push({ role: "assistant", content: data.content });
     }
     saveChats();
@@ -652,6 +806,10 @@ function renderMcpList() {
     const checked = enabledMcps.has(m.name) ? "checked" : "";
     const disabled = !m.connected ? "disabled" : "";
 
+    const toolNames = Array.isArray(m.toolNames) ? m.toolNames : [];
+    const expanded = expandedMcps.has(m.name);
+    if (expanded) row.classList.add("expanded");
+
     row.innerHTML = `
       <div class="mcp-icon">${iconFor(m.domain)}</div>
       <div class="mcp-meta">
@@ -659,16 +817,44 @@ function renderMcpList() {
         <div class="mcp-desc">${escapeHtml(m.desc)} ${m.connected ? `· ${m.tools} tools` : ""}</div>
       </div>
       <span class="mcp-status ${statusClass}">${status}</span>
+      ${toolNames.length ? `<button type="button" class="mcp-expand-btn">${expanded ? "▴ 접기" : "▾ 도구"}</button>` : ""}
       <label class="switch">
-        <input type="checkbox" data-name="${m.name}" ${checked} ${disabled}>
+        <input type="checkbox" class="mcp-toggle" data-name="${m.name}" ${checked} ${disabled}>
         <span class="slider"></span>
       </label>
+      <div class="mcp-tools-wrap">
+        ${toolNames.map(t => {
+          const key = `${m.name}__${t}`;
+          const isDisabled = disabledTools.has(key);
+          return `<div class="tool-item ${isDisabled ? "disabled-tool" : ""}">
+            <input type="checkbox" data-tool="${escapeHtml(key)}" ${isDisabled ? "" : "checked"}>
+            <span>${escapeHtml(t)}</span>
+          </div>`;
+        }).join("")}
+      </div>
     `;
-    row.querySelector("input").onchange = (e) => {
+    row.querySelector(".mcp-toggle").onchange = (e) => {
       if (e.target.checked) enabledMcps.add(m.name);
       else enabledMcps.delete(m.name);
       updateActiveCount();
     };
+    const expandBtn = row.querySelector(".mcp-expand-btn");
+    if (expandBtn) {
+      expandBtn.onclick = () => {
+        if (expandedMcps.has(m.name)) expandedMcps.delete(m.name);
+        else expandedMcps.add(m.name);
+        renderMcpList();
+      };
+    }
+    row.querySelectorAll('input[data-tool]').forEach(cb => {
+      cb.onchange = (e) => {
+        const key = e.target.getAttribute("data-tool");
+        if (e.target.checked) disabledTools.delete(key);
+        else disabledTools.add(key);
+        persistDisabledTools();
+        e.target.closest(".tool-item").classList.toggle("disabled-tool", !e.target.checked);
+      };
+    });
     mcpList.appendChild(row);
   }
   updateActiveCount();
@@ -708,6 +894,7 @@ document.getElementById("logoutBtn").onclick = async () => {
 // boot
 loadMe();
 loadMcpCatalog();
+renderErrPanel();
 if (chats.length === 0) newChat();
 else loadChat(chats[chats.length - 1].id);
 </script>

@@ -16,7 +16,7 @@ async function probeOne(entry) {
       new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("probe timeout")), PROBE_TIMEOUT_MS); }),
     ]);
     const { tools } = await client.listTools();
-    return { ...entry, connected: true, tools: tools.length };
+    return { ...entry, connected: true, tools: tools.length, toolNames: tools.map(t => t.name) };
   } catch (e) {
     return { ...entry, connected: false, tools: 0, error: e.message };
   } finally {
