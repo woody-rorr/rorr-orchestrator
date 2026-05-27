@@ -22,7 +22,9 @@ async function probeOne(entry) {
       const { tools } = await client.listTools();
       return { ...entry, connected: true, tools: tools.length, toolNames: tools.map(t => t.name) };
     } catch (e) {
-      return { ...entry, connected: true, tools: 0, toolNames: [], schemaWarning: e.message };
+      // SDK가 스키마 못 푸는 경우 fallbackTools로 대체
+      const fb = entry.fallbackTools || [];
+      return { ...entry, connected: true, tools: fb.length, toolNames: fb, schemaWarning: e.message };
     }
   } catch (e) {
     return { ...entry, connected: false, tools: 0, error: e.message };
