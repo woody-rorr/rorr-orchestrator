@@ -99,6 +99,50 @@ function buildMcpConfig({ userToken } = {}) {
   return { mcpServers: servers };
 }
 
+function formatClaudeOutput({ code, stdout, stderr }) {
+  // 우선 stdout이 JSON이면 파싱
+  let parsed = null;
+  try { parsed = JSON.parse(stdout.trim()); } catch {}
+
+  if (parsed && typeof parsed === "object") {
+    const isError = parsed.is_error === true || (parsed.api_error_status && parsed.api_error_status >= 400);
+    if (isError) {
+      const status = parsed.api_error_status;
+      const reason = parsed.result || parsed.error || parsed.stop_reason || "unknown";
+      const sessionId = parsed.session_id ? ` (session=${parsed.session_id.slice(0, 8)})` : "";
+
+      let hint = "";
+      if (status === 401) {
+        hint = "\n→ Claude OAuth 토큰이 만료/무효. 로컬에서 `claude` 한번 실행 후 `rorr-orchestrator/scripts/refresh-claude-token.sh` 실행.";
+      } else if (status === 429) {
+        hint = "\n→ Rate limit. 잠시 후 재시도.";
+      } else if (status >= 500) {
+        hint = "\n→ Claude API 서버 오류. 잠시 후 재시도.";
+      }
+
+      return {
+        level: "error",
+        status,
+        detail: reason,
+        text: `❌ Claude 호출 실패 (HTTP ${status ?? "?"})${sessionId}\n   ${reason}${hint}`,
+      };
+    }
+    // 정상 결과
+    return { level: "ok", text: parsed.result ?? stdout };
+  }
+
+  if (code !== 0) {
+    const detail = (stderr || stdout || "").trim() || "(no output)";
+    return {
+      level: "error",
+      detail,
+      text: `❌ Claude CLI 비정상 종료 (exit=${code})\n${detail.slice(0, 2000)}`,
+    };
+  }
+
+  return { level: "ok", text: stdout || "(empty)" };
+}
+
 function serializeMessages(messages) {
   const parts = [];
   for (const m of messages) {
@@ -136,7 +180,8 @@ export async function runChat({ messages, userToken }) {
 
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      finalize({ final: [{ type: "text", text: `claude CLI timeout (${TIMEOUT_MS}ms)` }] });
+      console.error(`[chat] claude CLI timeout (${TIMEOUT_MS}ms)`);
+      finalize({ final: [{ type: "text", text: `❌ Claude CLI 타임아웃 (${TIMEOUT_MS}ms)\n→ CLAUDE_TIMEOUT_MS 환경변수로 조정 가능.` }] });
     }, TIMEOUT_MS);
 
     let resolved = false;
@@ -152,19 +197,17 @@ export async function runChat({ messages, userToken }) {
     child.stdout.on("data", (d) => { stdout += d.toString(); });
     child.stderr.on("data", (d) => { stderr += d.toString(); });
 
-    child.on("error", (e) => finalize({ final: [{ type: "text", text: `claude spawn error: ${e.message}` }] }));
+    child.on("error", (e) => {
+      console.error("[chat] claude spawn error:", e.message);
+      finalize({ final: [{ type: "text", text: `claude spawn error: ${e.message}` }] });
+    });
 
     child.on("close", (code) => {
-      if (code !== 0) {
-        return finalize({ final: [{ type: "text", text: `claude exited ${code}: ${stderr || stdout}` }] });
+      const formatted = formatClaudeOutput({ code, stdout, stderr });
+      if (formatted.level === "error") {
+        console.error(`[chat] claude failed (exit=${code}, status=${formatted.status ?? "n/a"}): ${formatted.detail}`);
       }
-      try {
-        const parsed = JSON.parse(stdout.trim());
-        const text = parsed.result ?? stdout;
-        finalize({ final: [{ type: "text", text }] });
-      } catch {
-        finalize({ final: [{ type: "text", text: stdout || "(empty)" }] });
-      }
+      finalize({ final: [{ type: "text", text: formatted.text }] });
     });
   });
 }
