@@ -64,12 +64,27 @@ jobs:
             --force-new-deployment \
             --region $AWS_REGION > /dev/null
 
-      - name: Wait for stable
+      - name: Wait for stable (max 40min)
         run: |
-          aws ecs wait services-stable \
-            --cluster $CLUSTER \
-            --services $SERVICE \
-            --region $AWS_REGION
+          for i in $(seq 1 160); do
+            STATE=$(aws ecs describe-services \
+              --cluster $CLUSTER --services $SERVICE \
+              --region $AWS_REGION \
+              --query 'services[0].deployments[0].rolloutState' --output text)
+            COUNT=$(aws ecs describe-services \
+              --cluster $CLUSTER --services $SERVICE \
+              --region $AWS_REGION \
+              --query 'length(services[0].deployments)' --output text)
+            echo "[$i/160] rollout=$STATE deployments=$COUNT"
+            if [ "$STATE" = "COMPLETED" ] && [ "$COUNT" = "1" ]; then
+              echo "✅ stable"; exit 0
+            fi
+            if [ "$STATE" = "FAILED" ]; then
+              echo "✖ rollout FAILED"; exit 1
+            fi
+            sleep 15
+          done
+          echo "✖ 40분 내 stable 도달 못 함"; exit 1
 
       - name: Done
         run: echo "✅ Deployed orchestrator"
