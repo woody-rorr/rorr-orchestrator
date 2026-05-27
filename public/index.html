@@ -663,7 +663,14 @@ function blocksToHtml(blocks) {
   let out = "";
   for (const b of blocks) {
     if (b.type === "text") {
-      out += escapeHtml(b.text).replace(/(https?:\/\/\S+)/g, '<a href="$1" target="_blank">$1</a>');
+      out += escapeHtml(b.text).replace(/(https?:\/\/\S+)/g, (url) => {
+        const clean = url.replace(/[.,;:!?)]+$/, "");
+        const trailing = url.slice(clean.length);
+        if (/\.(png|jpe?g|gif|webp|svg)(\?[^\s]*)?$/i.test(clean)) {
+          return `<a href="${clean}" target="_blank"><img class="img-preview" src="${clean}" loading="lazy"></a>${trailing}`;
+        }
+        return `<a href="${clean}" target="_blank">${clean}</a>${trailing}`;
+      });
     } else if (b.type === "tool_use") {
       out += `<div class="tool-call">🔧 ${escapeHtml(b.name)}(${escapeHtml(JSON.stringify(b.input).slice(0, 80))}…)</div>`;
     } else if (b.type === "image" && b.source?.data) {
