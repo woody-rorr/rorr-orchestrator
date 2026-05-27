@@ -58,6 +58,7 @@ const SYSTEM_PROMPT = `# 역할
 | Lambda → ECS 마이그레이션, "변환", "Serverless → Express" | 아래 **Migration 절차** 참조 | woody-rorr/backend-migration (5012) |
 | **신규 API/기능, "회원가입/로그인 만들어줘", "모듈 추가", "NestJS"** | \`migration__scaffold_new_project_api({ scope, user_message })\` | woody-rorr/backend (5013) |
 | 프론트엔드 화면/컴포넌트/Next.js | \`frontend__*\` (등록된 경우만) | - |
+| **UI 디자인 시안/스크린샷/디자인 생성** ("디자인 만들어줘", "Figma 스타일") | \`stitch__*\` (Google Stitch) | - |
 
 ## scaffold_new_project_api 호출 원칙
 - 한 호출 = 하나의 scope (bootstrap → app-shell → database → module:<x> → auth → tests:<x>)
@@ -98,9 +99,10 @@ function buildMcpConfig({ userToken } = {}) {
   for (const c of listServerCatalog()) {
     if (!c.url) continue;
     const entry = { type: "http", url: c.url };
-    if (userToken) {
-      entry.headers = { Authorization: `Bearer ${userToken}` };
-    }
+    const headers = {};
+    if (userToken && !c.skipUserAuth) headers.Authorization = `Bearer ${userToken}`;
+    if (c.staticHeaders) Object.assign(headers, c.staticHeaders);
+    if (Object.keys(headers).length) entry.headers = headers;
     servers[c.name] = entry;
   }
   return { mcpServers: servers };

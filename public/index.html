@@ -123,8 +123,15 @@
     width: 100%;
     margin: 0 auto;
   }
+  .msg-wrap { margin: 16px 0; display: flex; flex-direction: column; }
+  .msg-wrap.user { align-items: flex-end; }
+  .msg-wrap.assistant { align-items: flex-start; }
+  .msg-ts {
+    font-size: 11px;
+    color: #666;
+    margin: 0 4px 4px;
+  }
   .msg {
-    margin: 16px 0;
     padding: 12px 14px;
     border-radius: 12px;
     line-height: 1.55;
@@ -673,12 +680,28 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-function addMsgEl(role, html) {
+function fmtTs(ts) {
+  const d = new Date(ts || Date.now());
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function addMsgEl(role, html, ts) {
   if (log.querySelector(".empty")) log.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "msg-wrap " + role;
+
+  const stamp = document.createElement("div");
+  stamp.className = "msg-ts";
+  stamp.textContent = fmtTs(ts);
+
   const el = document.createElement("div");
   el.className = "msg " + role;
   el.innerHTML = html;
-  log.appendChild(el);
+
+  wrap.appendChild(stamp);
+  wrap.appendChild(el);
+  log.appendChild(wrap);
   log.scrollTop = log.scrollHeight;
 }
 
@@ -692,7 +715,7 @@ function loadChat(id) {
   } else {
     for (const m of chat.history) {
       const html = typeof m.content === "string" ? escapeHtml(m.content) : blocksToHtml(m.content);
-      addMsgEl(m.role === "user" ? "user" : "assistant", html);
+      addMsgEl(m.role === "user" ? "user" : "assistant", html, m.ts);
     }
   }
   renderRecent();
@@ -746,7 +769,8 @@ form.onsubmit = async (e) => {
   }
   if (text) userContent.push({ type: "text", text });
 
-  chat.history.push({ role: "user", content: userContent });
+  const userTs = Date.now();
+  chat.history.push({ role: "user", content: userContent, ts: userTs });
 
   if (chat.title === "새 대화" && text) {
     chat.title = text.slice(0, 30);
@@ -757,7 +781,7 @@ form.onsubmit = async (e) => {
   let userHtml = "";
   for (const img of pendingImages) userHtml += `<img class="img-preview" src="${img.dataUrl}">`;
   if (text) userHtml += escapeHtml(text);
-  addMsgEl("user", userHtml);
+  addMsgEl("user", userHtml, userTs);
 
   pendingImages = [];
   renderAttached();
@@ -793,8 +817,9 @@ form.onsubmit = async (e) => {
         html += `<div class="failed-box"><div class="ftitle">이번 응답에서 실패한 MCP 도구 ${failed.length}건</div><ul>${items}</ul></div>`;
         recordFailedTools(failed);
       }
-      addMsgEl("assistant", html);
-      chat.history.push({ role: "assistant", content: data.content });
+      const asstTs = Date.now();
+      addMsgEl("assistant", html, asstTs);
+      chat.history.push({ role: "assistant", content: data.content, ts: asstTs });
     }
     saveChats();
     renderTags();
