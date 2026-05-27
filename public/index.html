@@ -51,12 +51,27 @@
     color: #ccc;
     cursor: pointer;
     margin-bottom: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .recent-item:hover { background: #1d1d22; }
   .recent-item.active { background: #2a2a30; color: #fff; }
+  .recent-title {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .recent-del {
+    background: transparent; border: 0; color: #666;
+    font-size: 13px; padding: 2px 6px; border-radius: 4px;
+    cursor: pointer; opacity: 0; transition: opacity 0.15s;
+  }
+  .recent-item:hover .recent-del { opacity: 1; }
+  .recent-del:hover { background: #3a2020; color: #ff8a8a; }
+  .recent-clear-all {
+    background: transparent; border: 0; color: #777;
+    font-size: 11px; cursor: pointer; padding: 2px 4px;
+  }
+  .recent-clear-all:hover { color: #ff8a8a; }
   .user-info {
     border-top: 1px solid #222;
     padding: 12px 8px;
@@ -409,7 +424,10 @@
 <body>
 <aside>
   <button class="new-chat" id="newChat">+ 새 대화</button>
-  <div class="recent-label">최근 대화</div>
+  <div class="recent-label" style="display:flex;justify-content:space-between;align-items:center;">
+    <span>최근 대화</span>
+    <button class="recent-clear-all" id="clearAllChats" title="전체 삭제">전체 삭제</button>
+  </div>
   <div class="recent-list" id="recentList"></div>
   <button class="settings-btn" id="settingsBtn">⚙ MCP 도구 설정</button>
   <button class="settings-btn" id="statusBtn">🩺 시스템 상태</button>
@@ -483,6 +501,8 @@ const input = document.getElementById("input");
 const form = document.getElementById("form");
 const sendBtn = document.getElementById("send");
 const newChatBtn = document.getElementById("newChat");
+const clearAllBtn = document.getElementById("clearAllChats");
+if (clearAllBtn) clearAllBtn.onclick = clearAllChats;
 const recentList = document.getElementById("recentList");
 const convoTitle = document.getElementById("convoTitle");
 const convoTags = document.getElementById("convoTags");
@@ -584,13 +604,49 @@ function renderTags() {
   }
 }
 
+function deleteChat(id) {
+  const target = chats.find(c => c.id === id);
+  const title = target?.title || "(제목 없음)";
+  if (!confirm(`'${title}' 대화를 삭제할까요?`)) return;
+  chats = chats.filter(c => c.id !== id);
+  saveChats();
+  if (currentId === id) {
+    currentId = null;
+    chat = { id: null, title: "", history: [] };
+    log.innerHTML = '<div class="empty">새 대화를 시작해 보세요</div>';
+  }
+  renderRecent();
+}
+
+function clearAllChats() {
+  if (!confirm(`최근 대화 ${chats.length}개를 모두 삭제할까요?`)) return;
+  chats = [];
+  currentId = null;
+  chat = { id: null, title: "", history: [] };
+  saveChats();
+  log.innerHTML = '<div class="empty">새 대화를 시작해 보세요</div>';
+  renderRecent();
+}
+
 function renderRecent() {
   recentList.innerHTML = "";
   for (const c of chats.slice().reverse()) {
     const el = document.createElement("div");
     el.className = "recent-item" + (c.id === currentId ? " active" : "");
-    el.textContent = c.title || "(제목 없음)";
-    el.onclick = () => loadChat(c.id);
+
+    const titleSpan = document.createElement("span");
+    titleSpan.className = "recent-title";
+    titleSpan.textContent = c.title || "(제목 없음)";
+    titleSpan.onclick = () => loadChat(c.id);
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "recent-del";
+    delBtn.textContent = "✕";
+    delBtn.title = "이 대화 삭제";
+    delBtn.onclick = (e) => { e.stopPropagation(); deleteChat(c.id); };
+
+    el.appendChild(titleSpan);
+    el.appendChild(delBtn);
     recentList.appendChild(el);
   }
 }
