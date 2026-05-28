@@ -318,6 +318,21 @@
 
   /* Tool list inside MCP row */
   .mcp-row { flex-wrap: wrap; }
+  .mcp-section-label {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding: 14px 4px 6px;
+    border-bottom: 1px solid #2a2a30;
+    margin-bottom: 6px;
+  }
+  .mcp-section-label.external {
+    color: #f0a868;
+    border-bottom-color: rgba(240, 168, 104, 0.25);
+  }
+  .mcp-section-label.external::before { content: "🌐  "; }
+  .mcp-section-label.internal::before { content: "🏠  "; }
   .mcp-tools-wrap { width: 100%; margin-top: 8px; padding-top: 8px; border-top: 1px solid #222; display: none; }
   .mcp-row.expanded .mcp-tools-wrap { display: block; }
   .mcp-expand-btn {
@@ -882,7 +897,25 @@ function iconFor(domain) {
 
 function renderMcpList() {
   mcpList.innerHTML = "";
-  for (const m of mcpCatalog) {
+  const internal = mcpCatalog.filter(m => !m.external);
+  const external = mcpCatalog.filter(m => m.external);
+
+  const addSection = (label, items, kind) => {
+    if (!items.length) return;
+    const sec = document.createElement("div");
+    sec.className = "mcp-section-label " + kind;
+    sec.textContent = label;
+    mcpList.appendChild(sec);
+    for (const m of items) renderMcpRow(m);
+  };
+
+  addSection("내부 MCP", internal, "internal");
+  addSection("외부 MCP", external, "external");
+  updateActiveCount();
+}
+
+function renderMcpRow(m) {
+  {
     const row = document.createElement("div");
     row.className = "mcp-row";
 
@@ -945,7 +978,6 @@ function renderMcpList() {
     });
     mcpList.appendChild(row);
   }
-  updateActiveCount();
 }
 
 function updateActiveCount() {
