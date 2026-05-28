@@ -441,6 +441,46 @@
     font-weight: 600;
     cursor: pointer;
   }
+
+  /* Log panel */
+  aside.logPanel {
+    width: 360px;
+    flex-shrink: 0;
+    background: #0d0d10;
+    border-left: 1px solid #1c1c1f;
+    display: flex;
+    flex-direction: column;
+    transition: width 0.15s ease;
+  }
+  aside.logPanel.collapsed { width: 32px; }
+  aside.logPanel.collapsed .logBody { display: none; }
+  aside.logPanel.collapsed .logHead span { display: none; }
+  aside.logPanel.collapsed #logClear { display: none; }
+  .logHead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid #1c1c1f;
+    font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .logHead button {
+    background: transparent; border: 0; color: #888;
+    cursor: pointer; padding: 2px 6px; font-size: 13px; border-radius: 4px;
+  }
+  .logHead button:hover { background: #1d1d22; color: #fff; }
+  .logBody {
+    flex: 1; overflow-y: auto;
+    padding: 8px 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; line-height: 1.55;
+    color: #bcbcc2;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .logBody .empty { color: #555; font-style: italic; }
+  .logLine { padding: 2px 0; border-bottom: 1px dashed #161619; }
+  .logLine.warn { color: #e0c060; }
+  .logLine.error { color: #ff8a8a; }
+  .logLine.route { color: #8ab4ff; }
+  .logLine .ts { color: #555; margin-right: 6px; }
 </style>
 </head>
 <body>
@@ -516,6 +556,17 @@
     </div>
   </form>
 </main>
+
+<aside class="logPanel" id="logPanel">
+  <div class="logHead">
+    <span>실시간 로그</span>
+    <div>
+      <button type="button" id="logClear" title="비우기">×</button>
+      <button type="button" id="logToggle" title="접기">⇥</button>
+    </div>
+  </div>
+  <div class="logBody" id="logBody"></div>
+</aside>
 
 <script>
 const log = document.getElementById("log");
@@ -812,36 +863,58 @@ form.onsubmit = async (e) => {
   sendBtn.disabled = true;
 
   try {
+    appendLog({ level: "info", text: `[client] → /chat (msg ${chat.history.length})`, ts: Date.now() });
     const r = await fetch("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps], disabled_tools: [...disabledTools] }),
+      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps], disabled_tools: [...disabledTools], stream: true }),
     });
-    const raw = await r.text();
-    let data = null;
-    try { data = JSON.parse(raw); } catch {}
-    if (!data) {
-      // JSON이 아닌 응답 (ALB 502/504 HTML, nginx 에러 등) — 본문 일부 그대로 노출
+
+    if (!r.ok || !r.body) {
+      const raw = await r.text().catch(() => "");
       const snippet = raw.replace(/<[^>]+>/g, "").trim().slice(0, 300) || "(빈 응답)";
       const hint = r.status === 504
         ? "\n→ ALB idle timeout. Claude 응답이 60초를 초과. 더 짧게 나눠 요청하거나 ALB idle timeout 상향 필요."
         : r.status === 502
         ? "\n→ 오케스트레이터 컨테이너가 응답 못 함. ECS 태스크 상태/로그 확인 필요."
         : "";
-      addMsgEl("assistant", "에러: HTTP " + r.status + " (JSON 아님)\n" + escapeHtml(snippet) + escapeHtml(hint));
-    } else if (data.error) {
-      addMsgEl("assistant", "에러: " + escapeHtml(data.error));
+      addMsgEl("assistant", "에러: HTTP " + r.status + "\n" + escapeHtml(snippet) + escapeHtml(hint));
     } else {
-      let html = blocksToHtml(data.content);
-      const failed = Array.isArray(data.failedTools) ? data.failedTools : [];
-      if (failed.length) {
-        const items = failed.map(f => `<li><code>${escapeHtml(f.tool)}</code> — ${escapeHtml((f.error||"").slice(0,200))}</li>`).join("");
-        html += `<div class="failed-box"><div class="ftitle">이번 응답에서 실패한 MCP 도구 ${failed.length}건</div><ul>${items}</ul></div>`;
-        recordFailedTools(failed);
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let finalEvt = null;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let evt;
+          try { evt = JSON.parse(line); } catch { continue; }
+          if (evt.type === "log") appendLog(evt);
+          else if (evt.type === "final") finalEvt = evt;
+        }
       }
-      const asstTs = Date.now();
-      addMsgEl("assistant", html, asstTs);
-      chat.history.push({ role: "assistant", content: data.content, ts: asstTs });
+      if (!finalEvt) {
+        addMsgEl("assistant", "에러: 스트림이 final 없이 종료됨");
+      } else if (finalEvt.error) {
+        addMsgEl("assistant", "에러: " + escapeHtml(finalEvt.error));
+      } else {
+        let html = blocksToHtml(finalEvt.content);
+        const failed = Array.isArray(finalEvt.failedTools) ? finalEvt.failedTools : [];
+        if (failed.length) {
+          const items = failed.map(f => `<li><code>${escapeHtml(f.tool)}</code> — ${escapeHtml((f.error||"").slice(0,200))}</li>`).join("");
+          html += `<div class="failed-box"><div class="ftitle">이번 응답에서 실패한 MCP 도구 ${failed.length}건</div><ul>${items}</ul></div>`;
+          recordFailedTools(failed);
+        }
+        const asstTs = Date.now();
+        addMsgEl("assistant", html, asstTs);
+        chat.history.push({ role: "assistant", content: finalEvt.content, ts: asstTs });
+      }
     }
     saveChats();
     renderTags();
@@ -853,6 +926,27 @@ form.onsubmit = async (e) => {
     input.focus();
   }
 };
+
+// Log panel
+const logBody = document.getElementById("logBody");
+const logPanel = document.getElementById("logPanel");
+document.getElementById("logToggle").onclick = () => logPanel.classList.toggle("collapsed");
+document.getElementById("logClear").onclick = () => { logBody.innerHTML = ""; };
+function appendLog(evt) {
+  const text = String(evt.text || "");
+  const level = evt.level || "info";
+  let cls = "logLine";
+  if (level === "warn") cls += " warn";
+  else if (level === "error") cls += " error";
+  else if (text.startsWith("[route]")) cls += " route";
+  const d = new Date(evt.ts || Date.now());
+  const ts = d.toTimeString().slice(0, 8);
+  const div = document.createElement("div");
+  div.className = cls;
+  div.innerHTML = `<span class="ts">${ts}</span>${escapeHtml(text)}`;
+  logBody.appendChild(div);
+  logBody.scrollTop = logBody.scrollHeight;
+}
 
 // auto-grow textarea
 input.addEventListener("input", () => {

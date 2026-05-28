@@ -98,14 +98,37 @@ app.get("/mcps", async (_, res) => {
 });
 
 app.post("/chat", requireAuth, attachUserToken, async (req, res) => {
-  const { messages, disabled_tools } = req.body;
+  const { messages, disabled_tools, stream } = req.body;
   if (!Array.isArray(messages)) return res.status(400).json({ error: "messages required" });
+
+  // 비스트림 호환 (옛 클라이언트)
+  if (!stream) {
+    try {
+      const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools });
+      return res.json({ content: final, failedTools: failedTools || [] });
+    } catch (e) {
+      console.error(e);
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // NDJSON 스트림 — 로그 + 최종 응답
+  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const send = (obj) => { try { res.write(JSON.stringify(obj) + "\n"); } catch {} };
+  send({ type: "log", level: "info", text: "[server] stream opened", ts: Date.now() });
+  const onLog = (entry) => send({ type: "log", ...entry });
   try {
-    const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools });
-    res.json({ content: final, failedTools: failedTools || [] });
+    const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools, onLog });
+    send({ type: "final", content: final, failedTools: failedTools || [] });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: e.message });
+    send({ type: "final", error: e.message });
+  } finally {
+    res.end();
   }
 });
 

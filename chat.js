@@ -153,7 +153,13 @@ function serializeMessages(messages) {
   return parts.join("\n\n");
 }
 
-export async function runChat({ messages, userToken, disabledTools = [] }) {
+export async function runChat({ messages, userToken, disabledTools = [], onLog }) {
+  const log = (level, msg) => {
+    if (level === "warn") console.warn(msg);
+    else if (level === "error") console.error(msg);
+    else console.log(msg);
+    try { onLog?.({ level, text: String(msg), ts: Date.now() }); } catch {}
+  };
   const prompt = serializeMessages(messages);
   const mcpConfig = buildMcpConfig({ userToken });
   const disabledList = Array.isArray(disabledTools) ? disabledTools.filter(Boolean) : [];
@@ -186,7 +192,7 @@ export async function runChat({ messages, userToken, disabledTools = [] }) {
 
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      console.error(`[chat] claude CLI timeout (${TIMEOUT_MS}ms)`);
+      log("error", `[chat] claude CLI timeout (${TIMEOUT_MS}ms)`);
       finalize({ final: [{ type: "text", text: `❌ Claude CLI 타임아웃 (${TIMEOUT_MS}ms)\n→ CLAUDE_TIMEOUT_MS 환경변수로 조정 가능.` }], failedTools: [] });
     }, TIMEOUT_MS);
 
@@ -210,12 +216,12 @@ export async function runChat({ messages, userToken, disabledTools = [] }) {
           if (inputStr.length > 300) inputStr = inputStr.slice(0, 300) + "…";
         } catch { inputStr = "(unserializable)"; }
         toolUseById.set(b.id, { name: b.name, idx: toolIdx });
-        console.log(`[route] #${toolIdx} → mcp=${server} tool=${b.name} input=${inputStr}`);
+        log("info", `[route] #${toolIdx} → mcp=${server} tool=${b.name} input=${inputStr}`);
       }
       if (b?.type === "tool_result" && b.tool_use_id) {
         const meta = toolUseById.get(b.tool_use_id) || { name: "(unknown)", idx: "?" };
         const status = b.is_error ? "ERROR" : "ok";
-        console.log(`[route] #${meta.idx} ← mcp=${mcpServerOf(meta.name)} tool=${meta.name} status=${status}`);
+        log(b.is_error ? "error" : "info", `[route] #${meta.idx} ← mcp=${mcpServerOf(meta.name)} tool=${meta.name} status=${status}`);
         if (b.is_error) {
           const content = Array.isArray(b.content)
             ? b.content.map(c => c.text || JSON.stringify(c)).join(" ")
@@ -253,18 +259,18 @@ export async function runChat({ messages, userToken, disabledTools = [] }) {
         buf = buf.slice(nl + 1);
         if (!line) continue;
         try { handleEvent(JSON.parse(line)); }
-        catch (e) { console.warn("[chat] stream parse fail:", e.message, "line=", line.slice(0, 200)); }
+        catch (e) { log("warn", `[chat] stream parse fail: ${e.message} line=${line.slice(0, 200)}`); }
       }
     });
     child.stderr.on("data", (d) => { stderr += d.toString(); });
 
     child.on("error", (e) => {
-      console.error("[chat] claude spawn error:", e.message);
+      log("error", `[chat] claude spawn error: ${e.message}`);
       finalize({ final: [{ type: "text", text: `claude spawn error: ${e.message}` }], failedTools: [] });
     });
 
     child.on("close", (code) => {
-      if (toolIdx === 0) console.log("[route] (no MCP tool calls — Claude answered directly)");
+      if (toolIdx === 0) log("info", "[route] (no MCP tool calls — Claude answered directly)");
 
       let text;
       if (resultEvent) {
