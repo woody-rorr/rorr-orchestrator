@@ -132,88 +132,10 @@ function buildMcpConfig({ userToken } = {}) {
   return { mcpServers: servers };
 }
 
-function extractFailedTools(parsed) {
-  // Claude CLI JSON 출력의 iterations/messages를 훑어 tool_result.is_error=true 인 항목 수집
-  const failed = [];
-  const iters = parsed?.iterations || parsed?.messages || [];
-  const toolUseById = new Map();
-
-  function walkBlocks(blocks) {
-    if (!Array.isArray(blocks)) return;
-    for (const b of blocks) {
-      if (b?.type === "tool_use" && b.id) {
-        toolUseById.set(b.id, { name: b.name, input: b.input });
-      }
-      if (b?.type === "tool_result" && b.is_error) {
-        const meta = toolUseById.get(b.tool_use_id) || { name: "(unknown)" };
-        const content = Array.isArray(b.content)
-          ? b.content.map(c => c.text || JSON.stringify(c)).join(" ")
-          : (typeof b.content === "string" ? b.content : JSON.stringify(b.content));
-        failed.push({ tool: meta.name, error: (content || "").slice(0, 500) });
-      }
-    }
-  }
-
-  for (const it of iters) {
-    walkBlocks(it?.content);
-    walkBlocks(it?.message?.content);
-  }
-  return failed;
-}
-
 function mcpServerOf(toolName) {
   // tool 이름은 보통 `<server>__<tool>` 형태 (예: infra__handle_infra_request, migration__convert_handlers)
   const m = String(toolName || "").match(/^([^_]+)__/);
   return m ? m[1] : "(직접 도구)";
-}
-
-function formatClaudeOutput({ code, stdout, stderr }) {
-  // 우선 stdout이 JSON이면 파싱
-  let parsed = null;
-  try { parsed = JSON.parse(stdout.trim()); } catch {}
-
-  if (parsed && typeof parsed === "object") {
-    const failedTools = extractFailedTools(parsed);
-
-    const isError = parsed.is_error === true || (parsed.api_error_status && parsed.api_error_status >= 400);
-    if (isError) {
-      const status = parsed.api_error_status;
-      const reason = parsed.result || parsed.error || parsed.stop_reason || "unknown";
-      const sessionId = parsed.session_id ? ` (session=${parsed.session_id.slice(0, 8)})` : "";
-
-      let hint = "";
-      if (status === 401) {
-        hint = "\n→ Claude OAuth 토큰이 만료/무효. 로컬에서 `claude` 한번 실행 후 `rorr-orchestrator/scripts/refresh-claude-token.sh` 실행.";
-      } else if (status === 429) {
-        hint = "\n→ Rate limit. 잠시 후 재시도.";
-      } else if (status >= 500) {
-        hint = "\n→ Claude API 서버 오류. 잠시 후 재시도.";
-      }
-
-      return {
-        level: "error",
-        status,
-        detail: reason,
-        failedTools,
-        text: `❌ Claude 호출 실패 (HTTP ${status ?? "?"})${sessionId}\n   ${reason}${hint}`,
-      };
-    }
-    // 정상 종료지만 일부 MCP tool이 실패했을 수 있음
-    const body = parsed.result ?? stdout;
-    return { level: failedTools.length ? "warn" : "ok", failedTools, text: body };
-  }
-
-  if (code !== 0) {
-    const detail = (stderr || stdout || "").trim() || "(no output)";
-    return {
-      level: "error",
-      detail,
-      failedTools: [],
-      text: `❌ Claude CLI 비정상 종료 (exit=${code})\n${detail.slice(0, 2000)}`,
-    };
-  }
-
-  return { level: "ok", failedTools: [], text: stdout || "(empty)" };
 }
 
 function serializeMessages(messages) {
@@ -244,7 +166,8 @@ export async function runChat({ messages, userToken, disabledTools = [] }) {
 
   const args = [
     "-p", prompt,
-    "--output-format", "json",
+    "--output-format", "stream-json",
+    "--verbose",
     "--append-system-prompt", dynamicSystem,
     "--mcp-config", tmpFile,
     "--dangerously-skip-permissions",
@@ -252,7 +175,13 @@ export async function runChat({ messages, userToken, disabledTools = [] }) {
   if (MODEL) args.push("--model", MODEL);
 
   return new Promise((resolve) => {
-    let stdout = "", stderr = "";
+    let stderr = "";
+    let buf = "";
+    const toolUseById = new Map();
+    const failedTools = [];
+    let toolIdx = 0;
+    let resultEvent = null;
+    let lastAssistantText = "";
     const child = spawn("claude", args, { stdio: ["ignore", "pipe", "pipe"] });
 
     const timer = setTimeout(() => {
@@ -271,7 +200,62 @@ export async function runChat({ messages, userToken, disabledTools = [] }) {
       resolve(out);
     }
 
-    child.stdout.on("data", (d) => { stdout += d.toString(); });
+    function handleBlock(b) {
+      if (b?.type === "tool_use" && b.id) {
+        toolIdx++;
+        const server = mcpServerOf(b.name);
+        let inputStr = "";
+        try {
+          inputStr = JSON.stringify(b.input || {});
+          if (inputStr.length > 300) inputStr = inputStr.slice(0, 300) + "…";
+        } catch { inputStr = "(unserializable)"; }
+        toolUseById.set(b.id, { name: b.name, idx: toolIdx });
+        console.log(`[route] #${toolIdx} → mcp=${server} tool=${b.name} input=${inputStr}`);
+      }
+      if (b?.type === "tool_result" && b.tool_use_id) {
+        const meta = toolUseById.get(b.tool_use_id) || { name: "(unknown)", idx: "?" };
+        const status = b.is_error ? "ERROR" : "ok";
+        console.log(`[route] #${meta.idx} ← mcp=${mcpServerOf(meta.name)} tool=${meta.name} status=${status}`);
+        if (b.is_error) {
+          const content = Array.isArray(b.content)
+            ? b.content.map(c => c.text || JSON.stringify(c)).join(" ")
+            : (typeof b.content === "string" ? b.content : JSON.stringify(b.content));
+          failedTools.push({ tool: meta.name, error: (content || "").slice(0, 500) });
+        }
+      }
+    }
+
+    function handleEvent(evt) {
+      if (!evt || typeof evt !== "object") return;
+      // assistant 메시지: tool_use 블록 + 텍스트 블록 포함 가능
+      if (evt.type === "assistant" && evt.message?.content) {
+        const texts = [];
+        for (const b of evt.message.content) {
+          handleBlock(b);
+          if (b?.type === "text" && b.text) texts.push(b.text);
+        }
+        if (texts.length) lastAssistantText = texts.join("\n");
+      }
+      // user 메시지: tool_result 블록 포함 (Claude CLI가 도구 결과를 user 역할로 표현)
+      if (evt.type === "user" && evt.message?.content) {
+        for (const b of evt.message.content) handleBlock(b);
+      }
+      if (evt.type === "result") {
+        resultEvent = evt;
+      }
+    }
+
+    child.stdout.on("data", (d) => {
+      buf += d.toString();
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        try { handleEvent(JSON.parse(line)); }
+        catch (e) { console.warn("[chat] stream parse fail:", e.message, "line=", line.slice(0, 200)); }
+      }
+    });
     child.stderr.on("data", (d) => { stderr += d.toString(); });
 
     child.on("error", (e) => {
@@ -280,8 +264,30 @@ export async function runChat({ messages, userToken, disabledTools = [] }) {
     });
 
     child.on("close", (code) => {
-      const formatted = formatClaudeOutput({ code, stdout, stderr });
-      finalize({ final: [{ type: "text", text: formatted.text }], failedTools: formatted.failedTools || [] });
+      if (toolIdx === 0) console.log("[route] (no MCP tool calls — Claude answered directly)");
+
+      let text;
+      if (resultEvent) {
+        const isError = resultEvent.is_error === true || (resultEvent.api_error_status && resultEvent.api_error_status >= 400);
+        if (isError) {
+          const status = resultEvent.api_error_status;
+          const reason = resultEvent.result || resultEvent.error || resultEvent.stop_reason || "unknown";
+          let hint = "";
+          if (status === 401) hint = "\n→ Claude OAuth 토큰이 만료/무효. 로컬에서 `claude` 한번 실행 후 `rorr-orchestrator/scripts/refresh-claude-token.sh` 실행.";
+          else if (status === 429) hint = "\n→ Rate limit. 잠시 후 재시도.";
+          else if (status >= 500) hint = "\n→ Claude API 서버 오류. 잠시 후 재시도.";
+          text = `❌ Claude 호출 실패 (HTTP ${status ?? "?"})\n   ${reason}${hint}`;
+        } else {
+          text = resultEvent.result || lastAssistantText || "(empty)";
+        }
+      } else if (code !== 0) {
+        const detail = (stderr || "").trim() || "(no output)";
+        text = `❌ Claude CLI 비정상 종료 (exit=${code})\n${detail.slice(0, 2000)}`;
+      } else {
+        text = lastAssistantText || "(empty)";
+      }
+
+      finalize({ final: [{ type: "text", text }], failedTools });
     });
   });
 }
