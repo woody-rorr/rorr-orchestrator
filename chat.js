@@ -9,7 +9,7 @@ import path from "path";
 import { listServerCatalog } from "./mcpRegistry.js";
 import { getSsm, putSsm } from "./ssm.js";
 
-const TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS || "300000", 10);
+const TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS || "1000000", 10);
 const MODEL = process.env.LLM_MODEL || "";
 const SSM_CLAUDE_PATH = process.env.SSM_CLAUDE_PATH || "/rorr-mcp-infra/claude-credentials";
 const CLAUDE_CREDS_FILE = path.join(os.homedir(), ".claude", ".credentials.json");
@@ -49,6 +49,18 @@ const SYSTEM_PROMPT = `# 역할
 3. AWS 리소스를 **직접 변경하지 않는다**. 도메인 MCP를 거친다.
 4. 도메인 MCP의 결과(JSON, PR URL, 에러 메시지)는 **가공·요약 없이** 그대로 사용자에게 전달한다. 형식만 자연어로 감싸도 좋다.
 5. 한 요청이 여러 도메인에 걸치면 **도메인별로 순차 호출**하고 각 결과를 모은다. 한 tool 안에서 처리하려 시도하지 않는다.
+6. **연속 MCP 호출(도메인 간이든, 같은 도메인 내 다단계든) 시 앞 호출의 결과 데이터를 다음 호출의 \`user_message\`/인자에 포함**한다. 완료 메시지("PR 생성됨")만 전달하지 말 것 — 다음 호출이 필요로 하는 구체 정보(엔드포인트 URL, 스키마, 필드명, PR URL, 생성된 리소스 ID, 이전 scope 산출물 등)를 그대로 넣는다. 이 규칙은 단일 MCP를 여러 번 호출하는 경우(예: scaffold scope 체인, infra 다단계 작업)에도 동일하게 적용된다.
+
+예1 (도메인 간): "백엔드에 회원가입 API 추가하고 프론트엔드에 가입 화면도 만들어줘"
+  1) \`backend-api__handle_backend_request({ user_message: "회원가입 API 추가" })\`
+     → 결과: \`{ pr_url, endpoint: "POST /auth/signup", request_schema: {...}, response_schema: {...} }\`
+  2) \`frontend-web__handle_frontend_request({ user_message: "회원가입 화면 추가. 백엔드가 방금 만든 API: POST /auth/signup, request: {email, password, name}, response: {userId, token}. PR: <url>" })\`
+  3) 두 PR URL을 사용자에게 전달
+
+예2 (같은 MCP 다단계): scaffold scope 체인 / infra 다단계
+  - 다음 호출 \`user_message\`에 직전 결과의 핵심 산출물(생성된 파일 목록, 리소스 ARN, 다음 단계가 참조해야 할 식별자)을 명시적으로 인용한다.
+
+※ 앞 결과를 무시한 채 raw 사용자 문장만 다음 호출에 보내면 후속 MCP가 잘못된 스펙으로 작업한다. 반드시 컨텍스트 전파.
 
 # 라우팅 규칙
 | 사용자 의도 키워드 | 호출할 tool | target 레포 |

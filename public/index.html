@@ -450,10 +450,13 @@
     border-left: 1px solid #1c1c1f;
     display: flex;
     flex-direction: column;
+    padding: 0;
     transition: width 0.15s ease;
+    overflow: hidden;
   }
   aside.logPanel.collapsed { width: 32px; }
   aside.logPanel.collapsed .logBody { display: none; }
+  aside.logPanel.collapsed .logHead { padding: 10px 0; justify-content: center; }
   aside.logPanel.collapsed .logHead span { display: none; }
   aside.logPanel.collapsed #logClear { display: none; }
   .logHead {
@@ -930,7 +933,12 @@ form.onsubmit = async (e) => {
 // Log panel
 const logBody = document.getElementById("logBody");
 const logPanel = document.getElementById("logPanel");
-document.getElementById("logToggle").onclick = () => logPanel.classList.toggle("collapsed");
+document.getElementById("logToggle").onclick = () => {
+  const collapsed = logPanel.classList.toggle("collapsed");
+  const btn = document.getElementById("logToggle");
+  btn.textContent = collapsed ? "⇤" : "⇥";
+  btn.title = collapsed ? "펼치기" : "접기";
+};
 document.getElementById("logClear").onclick = () => { logBody.innerHTML = ""; };
 function appendLog(evt) {
   const text = String(evt.text || "");
