@@ -64,6 +64,19 @@ const SERVERS = [
     desc: "브라우저 익스텐션(Chrome Extension) 생성 (extension-test repo)",
     urlEnv: "MCP_EXTENSION_URL",
   },
+  {
+    name: "notion",
+    label: "Notion MCP",
+    domain: "notion",
+    desc: "Notion 워크스페이스 — 페이지/DB 검색·조회·생성·수정",
+    urlEnv: "MCP_NOTION_URL", // 기본 https://mcp.notion.com/mcp
+    external: true,
+    // 호스티드 Notion MCP는 user OAuth만 지원 → headless 컨테이너에서는 불가.
+    // Stitch와 동일하게 Internal Integration 토큰을 정적 Authorization 헤더로 주입한다.
+    // NOTION_TOKEN(ntn_...) 값에 "Bearer " 접두사는 자동으로 붙는다.
+    staticHeaders: { Authorization: "NOTION_TOKEN" }, // value = env var name
+    skipUserAuth: true,
+  },
 ];
 
 export function listServerCatalog() {
@@ -82,8 +95,11 @@ export function listServerCatalog() {
       const resolvedHeaders = {};
       if (staticHeaders) {
         for (const [h, envName] of Object.entries(staticHeaders)) {
-          const v = process.env[envName];
-          if (v) resolvedHeaders[h] = v;
+          let v = process.env[envName];
+          if (!v) continue;
+          // Authorization 헤더는 "Bearer <token>" 형식 보장 (이미 있으면 그대로)
+          if (h === "Authorization" && !/^Bearer\s/i.test(v)) v = `Bearer ${v}`;
+          resolvedHeaders[h] = v;
         }
       }
       return {

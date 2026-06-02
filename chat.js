@@ -8,6 +8,14 @@ import os from "os";
 import path from "path";
 import { listServerCatalog } from "./mcpRegistry.js";
 import { getSsm, putSsm } from "./ssm.js";
+import { notifyTeams, teamsEnabled } from "./notifyTeams.js";
+
+// GitHub PR URL 추출 (도메인 MCP 결과/최종 텍스트에서 PR 생성 성공 감지용)
+const PR_URL_RE = /https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
+function extractPrUrls(s) {
+  if (!s) return [];
+  return String(s).match(PR_URL_RE) || [];
+}
 
 const TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS || "1000000", 10);
 const MODEL = process.env.LLM_MODEL || "";
@@ -73,6 +81,7 @@ const SYSTEM_PROMPT = `# 역할
 | **웹 페이지/사이트** ("웹", "랜딩", "홈페이지") | \`web__*\` | front-test |
 | **브라우저 익스텐션/Chrome Extension** ("익스텐션", "extension", "크롬 확장") | \`extension__*\` | extension-test |
 | **UI 디자인 시안/스크린샷/디자인 생성** ("디자인 만들어줘", "Figma 스타일") | \`stitch__*\` (Google Stitch) | - |
+| **Notion 워크스페이스** ("노션", "Notion", "페이지 검색/조회/생성", "DB 조회") | \`notion__*\` (호스티드 Notion MCP) | - |
 
 ## scaffold_new_project_api 호출 원칙 (Critical)
 - 한 호출 = 하나의 scope. 순서: \`bootstrap → app-shell → database → module:<x> → (필요 시 auth) → publish\`
@@ -234,6 +243,15 @@ export async function runChat({ messages, userToken, disabledTools = [], onLog }
     try { onLog?.({ level, text: String(msg), ts: Date.now() }); } catch {}
   };
   const prompt = serializeMessages(messages);
+  // 알림 컨텍스트용: 마지막 사용자 텍스트
+  let lastUserMsg = "";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    if (typeof m.content === "string") { lastUserMsg = m.content; break; }
+    const t = (m.content || []).filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
+    if (t) { lastUserMsg = t; break; }
+  }
   const mcpConfig = buildMcpConfig({ userToken });
   const disabledList = Array.isArray(disabledTools) ? disabledTools.filter(Boolean) : [];
   const dynamicSystem = disabledList.length
@@ -258,6 +276,7 @@ export async function runChat({ messages, userToken, disabledTools = [], onLog }
     let buf = "";
     const toolUseById = new Map();
     const failedTools = [];
+    const prUrls = new Set(); // 도메인 MCP가 생성한 PR URL (성공 감지)
     let toolIdx = 0;
     let resultEvent = null;
     let lastAssistantText = "";
@@ -295,11 +314,13 @@ export async function runChat({ messages, userToken, disabledTools = [], onLog }
         const meta = toolUseById.get(b.tool_use_id) || { name: "(unknown)", idx: "?" };
         const status = b.is_error ? "ERROR" : "ok";
         log(b.is_error ? "error" : "info", `[route] #${meta.idx} ← mcp=${mcpServerOf(meta.name)} tool=${meta.name} status=${status}`);
+        const content = Array.isArray(b.content)
+          ? b.content.map(c => c.text || JSON.stringify(c)).join(" ")
+          : (typeof b.content === "string" ? b.content : JSON.stringify(b.content));
         if (b.is_error) {
-          const content = Array.isArray(b.content)
-            ? b.content.map(c => c.text || JSON.stringify(c)).join(" ")
-            : (typeof b.content === "string" ? b.content : JSON.stringify(b.content));
           failedTools.push({ tool: meta.name, error: (content || "").slice(0, 500) });
+        } else {
+          for (const u of extractPrUrls(content)) prUrls.add(u);
         }
       }
     }
@@ -367,6 +388,20 @@ export async function runChat({ messages, userToken, disabledTools = [], onLog }
       }
 
       finalize({ final: [{ type: "text", text }], failedTools });
+
+      // PR 생성 성공 시 Teams 알림 (fire-and-forget)
+      for (const u of extractPrUrls(text)) prUrls.add(u);
+      if (prUrls.size && teamsEnabled()) {
+        const urls = [...prUrls];
+        log("info", `[teams] PR ${urls.length}건 알림 전송`);
+        notifyTeams({
+          title: `✅ PR 생성 완료 (${urls.length}건)`,
+          text: lastUserMsg ? `요청: ${lastUserMsg.slice(0, 300)}` : undefined,
+          facts: urls.map((u, i) => ({ name: `PR ${i + 1}`, value: u })),
+          url: urls[0],
+          linkTitle: "PR 열기",
+        });
+      }
     });
   });
 }
