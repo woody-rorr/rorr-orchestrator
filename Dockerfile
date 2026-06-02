@@ -13,6 +13,7 @@ RUN npm ci --omit=dev
 
 COPY index.js chat.js mcpRegistry.js mcpProbe.js auth.js session.js ssm.js entrypoint.sh ./
 COPY public ./public
+COPY prompts ./prompts
 
 RUN chmod +x entrypoint.sh && chown -R node:node /app
 

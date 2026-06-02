@@ -33,11 +33,13 @@
 | `SSM_CLAUDE_PATH` | (선택) Claude OAuth credentials SSM 경로. 기본 `/rorr-mcp-infra/claude-credentials` |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth App (Sign in with GitHub) |
 | `MCP_INFRA_URL` | `http://mcp-agents-staging-alb-249976027.us-east-1.elb.amazonaws.com:5010/mcp` |
-| `MCP_FRONTEND_WEB_URL` | `http://...:5004/mcp` (배포되면) |
-| `MCP_FRONTEND_EXT_URL` | `http://...:5006/mcp` |
+| `MCP_FRONTEND_WEB_URL` | `http://...:5007/mcp` (웹) |
+| `MCP_FRONTEND_EXT_URL` | `http://...:5006/mcp` (extension) |
 | `MCP_BACKEND_API_URL` | `http://...:5003/mcp` |
 | `MCP_BACKEND_LOGIC_URL` | `http://...:5002/mcp` |
 | `MCP_BACKEND_SCHEMA_URL` | `http://...:5001/mcp` |
+| `MCP_BACKEND_MIGRATION_URL` | `http://...:5012/mcp` (마이그레이션 API 서버) |
+| `MCP_BACKEND_NEW_URL` | `http://...:5013/mcp` (신규 API 서버) |
 
 ## Task Role 권한 (필수)
 
