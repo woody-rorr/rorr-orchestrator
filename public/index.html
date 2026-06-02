@@ -441,6 +441,49 @@
     font-weight: 600;
     cursor: pointer;
   }
+
+  /* Log panel */
+  aside.logPanel {
+    width: 360px;
+    flex-shrink: 0;
+    background: #0d0d10;
+    border-left: 1px solid #1c1c1f;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    transition: width 0.15s ease;
+    overflow: hidden;
+  }
+  aside.logPanel.collapsed { width: 32px; }
+  aside.logPanel.collapsed .logBody { display: none; }
+  aside.logPanel.collapsed .logHead { padding: 10px 0; justify-content: center; }
+  aside.logPanel.collapsed .logHead span { display: none; }
+  aside.logPanel.collapsed #logClear { display: none; }
+  .logHead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid #1c1c1f;
+    font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .logHead button {
+    background: transparent; border: 0; color: #888;
+    cursor: pointer; padding: 2px 6px; font-size: 13px; border-radius: 4px;
+  }
+  .logHead button:hover { background: #1d1d22; color: #fff; }
+  .logBody {
+    flex: 1; overflow-y: auto;
+    padding: 8px 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; line-height: 1.55;
+    color: #bcbcc2;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .logBody .empty { color: #555; font-style: italic; }
+  .logLine { padding: 2px 0; border-bottom: 1px dashed #161619; }
+  .logLine.warn { color: #e0c060; }
+  .logLine.error { color: #ff8a8a; }
+  .logLine.route { color: #8ab4ff; }
+  .logLine .ts { color: #555; margin-right: 6px; }
 </style>
 </head>
 <body>
@@ -505,10 +548,10 @@
   <form id="form">
     <div class="attached" id="attached"></div>
     <div class="input-wrap">
-      <button type="button" class="icon-btn" id="attachBtn" title="이미지 첨부">
+      <button type="button" class="icon-btn" id="attachBtn" title="이미지 / md 파일 첨부">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
       </button>
-      <input type="file" id="fileInput" accept="image/*" multiple hidden>
+      <input type="file" id="fileInput" accept="image/*,.md,text/markdown" multiple hidden>
       <textarea id="input" placeholder="메시지를 입력하세요..." rows="1" autofocus></textarea>
       <button type="submit" class="send-btn" id="send">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
@@ -516,6 +559,17 @@
     </div>
   </form>
 </main>
+
+<aside class="logPanel" id="logPanel">
+  <div class="logHead">
+    <span>실시간 로그</span>
+    <div>
+      <button type="button" id="logClear" title="비우기">×</button>
+      <button type="button" id="logToggle" title="접기">⇥</button>
+    </div>
+  </div>
+  <div class="logBody" id="logBody"></div>
+</aside>
 
 <script>
 const log = document.getElementById("log");
@@ -538,7 +592,7 @@ const DISABLED_TOOLS_KEY = "rorr.disabledTools";
 const MCP_ERRORS_KEY = "rorr.mcpErrors";
 let chats = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
 let currentId = null;
-let pendingImages = []; // [{name, dataUrl, mediaType, base64}]
+let pendingImages = []; // 이미지: {name, dataUrl, mediaType, base64} / md: {name, isText:true, textContent}
 let mcpCatalog = []; // [{name,label,domain,desc,configured,connected,tools,toolNames}]
 let enabledMcps = new Set(JSON.parse(localStorage.getItem(ENABLED_KEY) || "null") || []);
 let disabledTools = new Set(JSON.parse(localStorage.getItem(DISABLED_TOOLS_KEY) || "[]"));
@@ -756,11 +810,17 @@ newChatBtn.onclick = newChat;
 attachBtn.onclick = () => fileInput.click();
 fileInput.onchange = async () => {
   for (const f of fileInput.files) {
-    const reader = new FileReader();
-    await new Promise((res) => { reader.onload = res; reader.readAsDataURL(f); });
-    const dataUrl = reader.result;
-    const base64 = dataUrl.split(",")[1];
-    pendingImages.push({ name: f.name, dataUrl, mediaType: f.type, base64 });
+    const isMd = /\.md$/i.test(f.name) || f.type === "text/markdown" || f.type === "text/x-markdown";
+    if (isMd) {
+      const textContent = await f.text();
+      pendingImages.push({ name: f.name, isText: true, textContent });
+    } else {
+      const reader = new FileReader();
+      await new Promise((res) => { reader.onload = res; reader.readAsDataURL(f); });
+      const dataUrl = reader.result;
+      const base64 = dataUrl.split(",")[1];
+      pendingImages.push({ name: f.name, dataUrl, mediaType: f.type, base64 });
+    }
   }
   fileInput.value = "";
   renderAttached();
@@ -769,10 +829,11 @@ fileInput.onchange = async () => {
 function renderAttached() {
   attached.innerHTML = "";
   for (let i = 0; i < pendingImages.length; i++) {
-    const img = pendingImages[i];
+    const item = pendingImages[i];
     const chip = document.createElement("div");
     chip.className = "chip";
-    chip.innerHTML = `🖼️ ${escapeHtml(img.name)} <span class="x">×</span>`;
+    const icon = item.isText ? "📄" : "🖼️";
+    chip.innerHTML = `${icon} ${escapeHtml(item.name)} <span class="x">×</span>`;
     chip.querySelector(".x").onclick = () => { pendingImages.splice(i, 1); renderAttached(); };
     attached.appendChild(chip);
   }
@@ -786,8 +847,12 @@ form.onsubmit = async (e) => {
   const chat = chats.find(c => c.id === currentId);
 
   const userContent = [];
-  for (const img of pendingImages) {
-    userContent.push({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } });
+  for (const att of pendingImages) {
+    if (att.isText) {
+      userContent.push({ type: "text", text: `[첨부 파일: ${att.name}]\n\`\`\`markdown\n${att.textContent}\n\`\`\`` });
+    } else {
+      userContent.push({ type: "image", source: { type: "base64", media_type: att.mediaType, data: att.base64 } });
+    }
   }
   if (text) userContent.push({ type: "text", text });
 
@@ -801,7 +866,10 @@ form.onsubmit = async (e) => {
 
   // render user message (text + image previews)
   let userHtml = "";
-  for (const img of pendingImages) userHtml += `<img class="img-preview" src="${img.dataUrl}">`;
+  for (const att of pendingImages) {
+    if (att.isText) userHtml += `<div class="chip">📄 ${escapeHtml(att.name)}</div>`;
+    else userHtml += `<img class="img-preview" src="${att.dataUrl}">`;
+  }
   if (text) userHtml += escapeHtml(text);
   addMsgEl("user", userHtml, userTs);
 
@@ -812,36 +880,58 @@ form.onsubmit = async (e) => {
   sendBtn.disabled = true;
 
   try {
+    appendLog({ level: "info", text: `[client] → /chat (msg ${chat.history.length})`, ts: Date.now() });
     const r = await fetch("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps], disabled_tools: [...disabledTools] }),
+      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps], disabled_tools: [...disabledTools], stream: true }),
     });
-    const raw = await r.text();
-    let data = null;
-    try { data = JSON.parse(raw); } catch {}
-    if (!data) {
-      // JSON이 아닌 응답 (ALB 502/504 HTML, nginx 에러 등) — 본문 일부 그대로 노출
+
+    if (!r.ok || !r.body) {
+      const raw = await r.text().catch(() => "");
       const snippet = raw.replace(/<[^>]+>/g, "").trim().slice(0, 300) || "(빈 응답)";
       const hint = r.status === 504
         ? "\n→ ALB idle timeout. Claude 응답이 60초를 초과. 더 짧게 나눠 요청하거나 ALB idle timeout 상향 필요."
         : r.status === 502
         ? "\n→ 오케스트레이터 컨테이너가 응답 못 함. ECS 태스크 상태/로그 확인 필요."
         : "";
-      addMsgEl("assistant", "에러: HTTP " + r.status + " (JSON 아님)\n" + escapeHtml(snippet) + escapeHtml(hint));
-    } else if (data.error) {
-      addMsgEl("assistant", "에러: " + escapeHtml(data.error));
+      addMsgEl("assistant", "에러: HTTP " + r.status + "\n" + escapeHtml(snippet) + escapeHtml(hint));
     } else {
-      let html = blocksToHtml(data.content);
-      const failed = Array.isArray(data.failedTools) ? data.failedTools : [];
-      if (failed.length) {
-        const items = failed.map(f => `<li><code>${escapeHtml(f.tool)}</code> — ${escapeHtml((f.error||"").slice(0,200))}</li>`).join("");
-        html += `<div class="failed-box"><div class="ftitle">이번 응답에서 실패한 MCP 도구 ${failed.length}건</div><ul>${items}</ul></div>`;
-        recordFailedTools(failed);
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let finalEvt = null;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let evt;
+          try { evt = JSON.parse(line); } catch { continue; }
+          if (evt.type === "log") appendLog(evt);
+          else if (evt.type === "final") finalEvt = evt;
+        }
       }
-      const asstTs = Date.now();
-      addMsgEl("assistant", html, asstTs);
-      chat.history.push({ role: "assistant", content: data.content, ts: asstTs });
+      if (!finalEvt) {
+        addMsgEl("assistant", "에러: 스트림이 final 없이 종료됨");
+      } else if (finalEvt.error) {
+        addMsgEl("assistant", "에러: " + escapeHtml(finalEvt.error));
+      } else {
+        let html = blocksToHtml(finalEvt.content);
+        const failed = Array.isArray(finalEvt.failedTools) ? finalEvt.failedTools : [];
+        if (failed.length) {
+          const items = failed.map(f => `<li><code>${escapeHtml(f.tool)}</code> — ${escapeHtml((f.error||"").slice(0,200))}</li>`).join("");
+          html += `<div class="failed-box"><div class="ftitle">이번 응답에서 실패한 MCP 도구 ${failed.length}건</div><ul>${items}</ul></div>`;
+          recordFailedTools(failed);
+        }
+        const asstTs = Date.now();
+        addMsgEl("assistant", html, asstTs);
+        chat.history.push({ role: "assistant", content: finalEvt.content, ts: asstTs });
+      }
     }
     saveChats();
     renderTags();
@@ -853,6 +943,32 @@ form.onsubmit = async (e) => {
     input.focus();
   }
 };
+
+// Log panel
+const logBody = document.getElementById("logBody");
+const logPanel = document.getElementById("logPanel");
+document.getElementById("logToggle").onclick = () => {
+  const collapsed = logPanel.classList.toggle("collapsed");
+  const btn = document.getElementById("logToggle");
+  btn.textContent = collapsed ? "⇤" : "⇥";
+  btn.title = collapsed ? "펼치기" : "접기";
+};
+document.getElementById("logClear").onclick = () => { logBody.innerHTML = ""; };
+function appendLog(evt) {
+  const text = String(evt.text || "");
+  const level = evt.level || "info";
+  let cls = "logLine";
+  if (level === "warn") cls += " warn";
+  else if (level === "error") cls += " error";
+  else if (text.startsWith("[route]")) cls += " route";
+  const d = new Date(evt.ts || Date.now());
+  const ts = d.toTimeString().slice(0, 8);
+  const div = document.createElement("div");
+  div.className = cls;
+  div.innerHTML = `<span class="ts">${ts}</span>${escapeHtml(text)}`;
+  logBody.appendChild(div);
+  logBody.scrollTop = logBody.scrollHeight;
+}
 
 // auto-grow textarea
 input.addEventListener("input", () => {

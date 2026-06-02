@@ -9,8 +9,15 @@ const BASE_URL = process.env.PUBLIC_BASE_URL || "http://mcp-agents-staging-alb-2
 
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+async function getClientId() {
+  return process.env.GITHUB_OAUTH_CLIENT_ID || await getSsm("/rorr/github/oauth-app/client-id", { decrypt: false });
+}
+async function getClientSecret() {
+  return process.env.GITHUB_OAUTH_CLIENT_SECRET || await getSsm("/rorr/github/oauth-app/client-secret");
+}
+
 router.get("/github/login", async (req, res) => {
-  const clientId = await getSsm("/rorr/github/oauth-app/client-id", { decrypt: false });
+  const clientId = await getClientId();
   if (!clientId) return res.status(500).send("OAuth not configured");
   const state = crypto.randomBytes(16).toString("hex");
   res.cookie("oauth_state", state, { httpOnly: true, sameSite: "lax", maxAge: 600_000 });
@@ -27,8 +34,8 @@ router.get("/github/callback", async (req, res) => {
   }
   if (!code) return res.status(400).send("Missing code");
 
-  const clientId = await getSsm("/rorr/github/oauth-app/client-id", { decrypt: false });
-  const clientSecret = await getSsm("/rorr/github/oauth-app/client-secret");
+  const clientId = await getClientId();
+  const clientSecret = await getClientSecret();
 
   // Exchange code → access_token
   const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
