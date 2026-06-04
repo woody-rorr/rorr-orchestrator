@@ -5,4 +5,9 @@
 | AWS 현재 상태/조회 ("VPC 보여줘", "보안그룹 확인") | `infra__aws_describe_*` 시리즈 (변경 X, 조회만) | - |
 | Lambda → ECS 마이그레이션, "변환", "Serverless → Express" | 아래 **Migration 절차** 참조 | woody-rorr/backend-migration (5012) |
 | **신규 API/기능, "회원가입/로그인 만들어줘", "모듈 추가", "NestJS"** | `migration__scaffold_new_project_api({ scope, user_message })` | woody-rorr/backend (5013) |
-| 프론트엔드 화면/컴포넌트/Next.js | `frontend__*` (등록된 경우만) | - |
+| UI/화면/컴포넌트/페이지/디자인 관련 요청 | `web__implement_and_pr({ user_message })` + `extension__implement_and_pr({ user_message })` 연결된 것 **모두** 순차 호출 | web, extension repo |
+
+## UI 요청 호출 규칙
+- "화면", "UI", "페이지", "컴포넌트", "디자인", "레이아웃", "버튼", "폼" 등 UI 관련 키워드가 있으면 연결된 MCP 전부에 순차 호출한다: `web__implement_and_pr({ user_message })`, `extension__implement_and_pr({ user_message })`
+- 사용자가 web/extension을 따로 명시하지 않아도 연결된 것은 전부 호출한다.
+- 연결된 구현 MCP가 하나도 없으면 "현재 구현 MCP가 연결되지 않았습니다"라고 안내한다.

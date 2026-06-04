@@ -98,13 +98,13 @@ app.get("/mcps", async (_, res) => {
 });
 
 app.post("/chat", requireAuth, attachUserToken, async (req, res) => {
-  const { messages, disabled_tools, stream } = req.body;
+  const { messages, disabled_tools, enabled_mcps, stream } = req.body;
   if (!Array.isArray(messages)) return res.status(400).json({ error: "messages required" });
 
   // 비스트림 호환 (옛 클라이언트)
   if (!stream) {
     try {
-      const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools });
+      const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools, enabledMcps: enabled_mcps });
       return res.json({ content: final, failedTools: failedTools || [] });
     } catch (e) {
       console.error(e);
@@ -122,7 +122,7 @@ app.post("/chat", requireAuth, attachUserToken, async (req, res) => {
   send({ type: "log", level: "info", text: "[server] stream opened", ts: Date.now() });
   const onLog = (entry) => send({ type: "log", ...entry });
   try {
-    const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools, onLog });
+    const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools, enabledMcps: enabled_mcps, onLog });
     send({ type: "final", content: final, failedTools: failedTools || [] });
   } catch (e) {
     console.error(e);
