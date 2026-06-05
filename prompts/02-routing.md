@@ -10,4 +10,5 @@
 ## UI 요청 호출 규칙
 - "화면", "UI", "페이지", "컴포넌트", "디자인", "레이아웃", "버튼", "폼" 등 UI 관련 키워드가 있으면 연결된 MCP 전부에 순차 호출한다: `web__implement_and_pr({ user_message })`, `extension__implement_and_pr({ user_message })`
 - 사용자가 web/extension을 따로 명시하지 않아도 연결된 것은 전부 호출한다.
+- **backend MCP(`migration` 등 domain=backend)가 enabled 상태이고 API 연동이 필요한 UI(로그인, 회원가입, 데이터 CRUD 화면 등)라면, frontend MCP보다 먼저 해당 backend MCP의 scaffold tool을 호출한다.** backend MCP가 enabled인데 무시되지 않도록 한다. 순수 정적 UI(배너, 레이아웃 등)는 건너뛴다.
 - 연결된 구현 MCP가 하나도 없으면 "현재 구현 MCP가 연결되지 않았습니다"라고 안내한다.
