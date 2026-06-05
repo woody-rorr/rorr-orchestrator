@@ -19,7 +19,8 @@ const SERVERS = [
       "update_design_system", "list_design_systems", "apply_design_system",
     ],
   },
-  { name: "web",       label: "Web MCP",               domain: "web",       desc: "웹 도메인 MCP (legacy)",                                                        urlEnv: "MCP_WEB_URL" },
+  { name: "web",       label: "Web MCP",               domain: "web",       desc: "웹 페이지/사이트 생성 (front-test repo)",                                        urlEnv: "MCP_WEB_URL" },
+  { name: "extension", label: "Extension MCP",         domain: "extension", desc: "브라우저 익스텐션(Chrome Extension) 생성 (extension-test repo)",                  urlEnv: "MCP_EXTENSION_URL" },
   { name: "notion",    label: "Notion MCP",            domain: "notion",    desc: "Notion 페이지/DB 조회·작성 (workspace 통합 토큰 사용)",                          urlEnv: "MCP_NOTION_URL",
     external: true,
     staticHeaders: {
