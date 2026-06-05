@@ -62,10 +62,11 @@ async function syncClaudeCredentialsIfRefreshed() {
 
 const SYSTEM_PROMPT = loadSystemPrompt();
 
-function buildMcpConfig({ userToken } = {}) {
+function buildMcpConfig({ userToken, enabledMcps } = {}) {
   const servers = {};
   for (const c of listServerCatalog()) {
     if (!c.url) continue;
+    if (Array.isArray(enabledMcps) && !enabledMcps.includes(c.name)) continue;
     const entry = { type: "http", url: c.url };
     const headers = {};
     if (userToken && !c.skipUserAuth) headers.Authorization = `Bearer ${userToken}`;
@@ -97,7 +98,7 @@ function serializeMessages(messages) {
   return parts.join("\n\n");
 }
 
-export async function runChat({ messages, userToken, disabledTools = [], onLog }) {
+export async function runChat({ messages, userToken, disabledTools = [], enabledMcps, onLog }) {
   const log = (level, msg) => {
     if (level === "warn") console.warn(msg);
     else if (level === "error") console.error(msg);
@@ -114,7 +115,7 @@ export async function runChat({ messages, userToken, disabledTools = [], onLog }
     const t = (m.content || []).filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
     if (t) { lastUserMsg = t; break; }
   }
-  const mcpConfig = buildMcpConfig({ userToken });
+  const mcpConfig = buildMcpConfig({ userToken, enabledMcps });
   const disabledList = Array.isArray(disabledTools) ? disabledTools.filter(Boolean) : [];
   const dynamicSystem = disabledList.length
     ? SYSTEM_PROMPT + `\n\n# 비활성 도구 (사용 금지)\n다음 도구는 이번 요청에서 절대 호출하지 마세요:\n${disabledList.map(t => `- ${t}`).join("\n")}`
