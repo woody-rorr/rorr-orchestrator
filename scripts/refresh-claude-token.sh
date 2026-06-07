@@ -17,7 +17,6 @@ CLUSTER="${ECS_CLUSTER:-mcp-agents-staging-cluster}"
 
 # 동일한 Claude OAuth credentials를 동기화할 SSM 경로 목록
 SSM_PATHS=(
-  "/rorr-mcp-infra/claude-credentials"
   "/backend-migration-mcp/claude-credentials"
   "/rorr-backend-api-mcp/claude-credentials"
 )
@@ -25,7 +24,6 @@ SSM_PATHS=(
 # (service, task-family) 쌍
 SERVICES=(
   "rorr-mcp-orchestrator-service:rorr-mcp-orchestrator-task"
-  "rorr-mcp-infra-service:rorr-mcp-infra-task"
   "backend-migration-mcp-service:backend-migration-mcp-task"
   "rorr-backend-api-mcp-service:rorr-backend-api-mcp-task"
 )
