@@ -4,12 +4,12 @@
 const SERVERS = [
   { name: "infra",     label: "Infra MCP",             domain: "infra",     desc: "Terraform 코드 생성, 인프라 변경",                                              urlEnv: "MCP_INFRA_URL" },
   { name: "migration", label: "Backend MCP",           domain: "backend",   desc: "Lambda→Express 마이그레이션(5012) + 신규 NestJS API scaffolding(5013)",         urlEnv: "MCP_MIGRATION_URL" },
+  { name: "backend-new",   label: "Backend API MCP (rorr-backend-api)", domain: "backend",   desc: "NestJS 신규 API 서버 생성 (piecomp/rorr-backend-api, ECS :5019). scaffold_api 도구 + preflight.",  urlEnv: "MCP_RORR_BACKEND_API_URL" },
   { name: "frontend",  label: "Frontend MCP",          domain: "frontend",  desc: "프론트엔드(웹/Next.js) 화면·컴포넌트 생성",                                      urlEnv: "MCP_FRONTEND_URL" },
   { name: "stitch",    label: "Stitch MCP (Google)",   domain: "design",    desc: "Google Stitch — UI 디자인/스크린샷 생성",                                        urlEnv: "MCP_STITCH_URL",
     external: true,
-    staticHeaders: { "X-Goog-Api-Key": "STITCH_API_KEY" },  // value=env var name
+    staticHeaders: { "X-Goog-Api-Key": "STITCH_API_KEY" },
     skipUserAuth: true,
-    // SDK가 $defs 스키마를 못 풀어 listTools가 실패하므로 알려진 도구 목록을 하드코딩
     fallbackTools: [
       "list_projects", "create_project", "get_project",
       "list_screens", "get_screen",
@@ -24,7 +24,7 @@ const SERVERS = [
   { name: "notion",    label: "Notion MCP",            domain: "notion",    desc: "Notion 페이지/DB 조회·작성 (workspace 통합 토큰 사용)",                          urlEnv: "MCP_NOTION_URL",
     external: true,
     staticHeaders: {
-      "Authorization": "NOTION_TOKEN",       // value = env var name (Bearer 접두는 NOTION_TOKEN 값에 포함시킬 것)
+      "Authorization": "NOTION_TOKEN",
     },
     skipUserAuth: true,
   },

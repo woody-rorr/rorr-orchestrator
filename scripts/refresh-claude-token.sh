@@ -19,6 +19,7 @@ CLUSTER="${ECS_CLUSTER:-mcp-agents-staging-cluster}"
 SSM_PATHS=(
   "/rorr-mcp-infra/claude-credentials"
   "/backend-migration-mcp/claude-credentials"
+  "/rorr-backend-api-mcp/claude-credentials"
 )
 
 # (service, task-family) 쌍
@@ -26,6 +27,7 @@ SERVICES=(
   "rorr-mcp-orchestrator-service:rorr-mcp-orchestrator-task"
   "rorr-mcp-infra-service:rorr-mcp-infra-task"
   "backend-migration-mcp-service:backend-migration-mcp-task"
+  "rorr-backend-api-mcp-service:rorr-backend-api-mcp-task"
 )
 
 export AWS_PROFILE AWS_REGION
