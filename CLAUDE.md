@@ -35,14 +35,38 @@
 | `MCP_INFRA_URL` | `http://mcp-agents-staging-alb-249976027.us-east-1.elb.amazonaws.com:5010/mcp` |
 | `MCP_FRONTEND_WEB_URL` | `http://...:5007/mcp` (웹) |
 | `MCP_FRONTEND_EXT_URL` | `http://...:5006/mcp` (extension) |
-| `MCP_BACKEND_API_URL` | `http://...:5003/mcp` |
-| `MCP_BACKEND_LOGIC_URL` | `http://...:5002/mcp` |
-| `MCP_BACKEND_SCHEMA_URL` | `http://...:5001/mcp` |
-| `MCP_BACKEND_MIGRATION_URL` | `http://...:5012/mcp` (마이그레이션 API 서버) |
-| `MCP_BACKEND_NEW_URL` | `http://...:5013/mcp` (신규 API 서버) |
+| `MCP_BACKEND_NEW_URL` | `http://...:5019/mcp` (신규 API 서버) |
 | `RORR_BOT_GATEWAY_URL` | RORR-Bot Gateway invoke 엔드포인트 (있어야 Teams 알림 활성). 예 `https://bot.rorr.club/tools/invoke` |
 | `RORR_BOT_AGENT_ID` | (선택) `sessions_send` 대상 agentId. 기본 `main` |
 | `SSM_RORR_BOT_TOKEN_PATH` | (선택) 게이트웨이 Bearer 토큰 SSM 경로. 기본 `/rorr/teams/bot-token` |
+
+## DB (참고 — orchestrator는 직접 사용 안 함, 도메인 MCP/타깃 레포가 사용)
+
+| 항목 | 값 |
+|---|---|
+| Aurora PostgreSQL (테스트) 엔드포인트 | `mcp-test.cluster-cwjiw4y08fiq.us-east-1.rds.amazonaws.com:5432` |
+
+자격증명은 **SSM Parameter Store**에서 ECS task def `secrets`로 주입 (코드/파일에 박지 말 것):
+
+**`backend` (신규 API, ECS :5019) 용**
+| SSM 파라미터 | 매핑 환경변수 | 비고 |
+|---|---|---|
+| `/backend-api-service/db-host` | `DB_HOST` | String |
+| `/backend-api-service/db-port` | `DB_PORT` | String (`5432`) |
+| `/backend-api-service/db-name` | `DB_NAME` | String (`backend`) |
+| `/backend-api-service/db-user` | `DB_USER` | String (`postgres`) |
+| `/backend-api-service/db-password` | `DB_PASSWORD` | **SecureString** |
+| `/backend-api-service/db-ssl` | `DB_SSL` | String (`true`) |
+| `/backend-api-service/jwt-secret` | `JWT_SECRET` | **SecureString** |
+| `/backend-api-service/jwt-expires-in` | `JWT_EXPIRES_IN` | String |
+
+**`backend-migration` (Express, ECS :5012) 용**
+| SSM 파라미터 | 매핑 환경변수 |
+|---|---|
+| `/backend-migration-api/database-url` | `DATABASE_URL` (통합 URL, SecureString) |
+| `/backend-migration-api/db-host` / `db-port` / `db-name` / `db-user` / `db-pass` | 개별 변수 (택일) |
+
+> Task Execution Role에 `ssm:GetParameters` + 해당 파라미터 ARN, password/jwt-secret은 `kms:Decrypt` 권한 필요.
 
 ## Task Role 권한 (필수)
 
