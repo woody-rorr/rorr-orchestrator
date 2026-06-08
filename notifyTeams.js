@@ -14,9 +14,11 @@
 
 import { getSsm } from "./ssm.js";
 
-const GATEWAY_URL = process.env.RORR_BOT_GATEWAY_URL || "";
+const GATEWAY_URL =
+  process.env.RORR_BOT_GATEWAY_URL || "https://bot.rorr.club/tools/invoke";
 const AGENT_ID = process.env.RORR_BOT_AGENT_ID || "main";
-const SSM_BOT_TOKEN_PATH = process.env.SSM_RORR_BOT_TOKEN_PATH || "/rorr/teams/bot-token";
+const SSM_BOT_TOKEN_PATH =
+  process.env.SSM_RORR_BOT_TOKEN_PATH || "/rorr/teams/bot-token";
 
 export function teamsEnabled() {
   return !!GATEWAY_URL;
@@ -50,7 +52,9 @@ export async function notifyTeams(opts) {
   try {
     const token = await getBotToken();
     if (!token) {
-      console.warn(`[teams] bot token 없음 (env RORR_BOT_TOKEN / SSM ${SSM_BOT_TOKEN_PATH}) — 알림 건너뜀`);
+      console.warn(
+        `[teams] bot token 없음 (env RORR_BOT_TOKEN / SSM ${SSM_BOT_TOKEN_PATH}) — 알림 건너뜀`,
+      );
       return;
     }
     const res = await fetch(GATEWAY_URL, {
