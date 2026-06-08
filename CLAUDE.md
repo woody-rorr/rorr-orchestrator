@@ -40,6 +40,9 @@
 | `MCP_BACKEND_SCHEMA_URL` | `http://...:5001/mcp` |
 | `MCP_BACKEND_MIGRATION_URL` | `http://...:5012/mcp` (마이그레이션 API 서버) |
 | `MCP_BACKEND_NEW_URL` | `http://...:5013/mcp` (신규 API 서버) |
+| `RORR_BOT_GATEWAY_URL` | RORR-Bot Gateway invoke 엔드포인트 (있어야 Teams 알림 활성). 예 `https://bot.rorr.club/tools/invoke` |
+| `RORR_BOT_AGENT_ID` | (선택) `sessions_send` 대상 agentId. 기본 `main` |
+| `SSM_RORR_BOT_TOKEN_PATH` | (선택) 게이트웨이 Bearer 토큰 SSM 경로. 기본 `/rorr/teams/bot-token` |
 
 ## Task Role 권한 (필수)
 
@@ -49,7 +52,8 @@
   "Resource": [
     "arn:aws:ssm:us-east-1:239460481239:parameter/rorr-mcp-infra/claude-credentials",
     "arn:aws:ssm:us-east-1:239460481239:parameter/rorr/session/secret",
-    "arn:aws:ssm:us-east-1:239460481239:parameter/rorr/github/oauth/*"
+    "arn:aws:ssm:us-east-1:239460481239:parameter/rorr/github/oauth/*",
+    "arn:aws:ssm:us-east-1:239460481239:parameter/rorr/teams/bot-token"
   ]
 }
 ```
@@ -57,6 +61,7 @@
 - Claude OAuth credentials: 부팅 시 entrypoint가 SSM에서 받아 `~/.claude/.credentials.json`에 주입 → `claude` CLI 사용.
 - 세션 비밀키: 쿠키 서명용 HMAC secret.
 - GitHub OAuth 사용자 토큰: 로그인한 사용자별 access token을 `/rorr/github/oauth/<login>/access_token`에 저장/조회.
+- Teams 봇 토큰: `/rorr/teams/bot-token`(SecureString). RORR-Bot Gateway(Mac mini) Bearer 토큰. PR 생성 성공 시 `notifyTeams.js`가 게이트웨이 `sessions_send`로 Teams 알림. 전송 시점에 `getSsm`으로 조회. 구조: 오케스트레이터(AWS) → Tailscale → RORR-Bot Gateway → Teams.
 
 ## 네트워크 (필수 SG 규칙)
 

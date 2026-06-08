@@ -1,71 +1,72 @@
-// Teams Incoming Webhook 알림. 특정 작업 완료(예: PR 생성 성공) 시 호출.
+// Teams 알림 — RORR-Bot Gateway(Mac mini) 경유 전송. PR 생성 성공 등 작업 완료 시 호출.
 //
-// 환경변수
-//   TEAMS_WEBHOOK_URL    : Teams Incoming Webhook URL. 미설정 시 알림 비활성(no-op).
-//   TEAMS_WEBHOOK_FORMAT : "card"(기본) = Power Automate Workflows(Adaptive Card)
-//                          "messagecard" = 레거시 O365 커넥터(MessageCard)
+// 구조: 오케스트레이터(AWS) → Tailscale → RORR-Bot Gateway(Mac mini) → Teams
 //
-// Teams 채널에서 "Workflows → Post to a channel when a webhook request is received"로
-// 만든 URL은 Adaptive Card(message+attachments) 형식을 기대하므로 기본값을 card로 둔다.
+// 설정
+//   RORR_BOT_GATEWAY_URL    : 게이트웨이 invoke 엔드포인트. 미설정 시 알림 비활성(no-op).
+//                             예) https://rorr-miniui-macmini-3.tail75e903.ts.net/tools/invoke
+//   RORR_BOT_TOKEN          : 게이트웨이 Bearer 토큰. (로컬) env 우선, 없으면 SSM에서 로드.
+//   SSM_RORR_BOT_TOKEN_PATH : 토큰 SSM 경로(SecureString). 기본 /rorr/teams/bot-token
+//   RORR_BOT_AGENT_ID       : sessions_send 대상 agentId. 기본 "main"
+//
+// 토큰은 전송 시점에 SSM에서 조회한다(getSsm 60s 캐시).
+// 전송: POST {gateway} { tool: "sessions_send", args: { agentId, message } }
 
-const WEBHOOK_URL = process.env.TEAMS_WEBHOOK_URL || "";
-const FORMAT = (process.env.TEAMS_WEBHOOK_FORMAT || "card").toLowerCase();
+import { getSsm } from "./ssm.js";
+
+const GATEWAY_URL = process.env.RORR_BOT_GATEWAY_URL || "";
+const AGENT_ID = process.env.RORR_BOT_AGENT_ID || "main";
+const SSM_BOT_TOKEN_PATH = process.env.SSM_RORR_BOT_TOKEN_PATH || "/rorr/teams/bot-token";
 
 export function teamsEnabled() {
-  return !!WEBHOOK_URL;
+  return !!GATEWAY_URL;
 }
 
-function buildPayload({ title, text, facts = [], url, linkTitle = "열기" }) {
-  if (FORMAT === "messagecard") {
-    return {
-      "@type": "MessageCard",
-      "@context": "https://schema.org/extensions",
-      themeColor: "2EB67D",
-      summary: title,
-      sections: [{
-        activityTitle: title,
-        text: text || "",
-        facts: facts.map((f) => ({ name: f.name, value: f.value })),
-      }],
-      potentialAction: url
-        ? [{ "@type": "OpenUri", name: linkTitle, targets: [{ os: "default", uri: url }] }]
-        : [],
-    };
-  }
+async function getBotToken() {
+  // 로컬 개발: 환경변수 우선. ECS: SSM SecureString(RORR_BOT_TOKEN).
+  if (process.env.RORR_BOT_TOKEN) return process.env.RORR_BOT_TOKEN;
+  return await getSsm(SSM_BOT_TOKEN_PATH);
+}
 
-  // Adaptive Card (Power Automate Workflows webhook)
-  const body = [{ type: "TextBlock", size: "Medium", weight: "Bolder", text: title }];
-  if (text) body.push({ type: "TextBlock", text, wrap: true });
+// 구조화된 알림(title/text/facts/url)을 채팅 메시지 한 덩어리로 평탄화.
+function buildMessage({ title, text, facts = [], url, linkTitle = "열기" }) {
+  const lines = [];
+  if (title) lines.push(title);
+  if (text) lines.push(text);
   if (facts.length) {
-    body.push({ type: "FactSet", facts: facts.map((f) => ({ title: f.name, value: f.value })) });
+    if (lines.length) lines.push("");
+    for (const f of facts) lines.push(`${f.name}: ${f.value}`);
   }
-  return {
-    type: "message",
-    attachments: [{
-      contentType: "application/vnd.microsoft.card.adaptive",
-      content: {
-        $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-        type: "AdaptiveCard",
-        version: "1.4",
-        body,
-        actions: url ? [{ type: "Action.OpenUrl", title: linkTitle, url }] : [],
-      },
-    }],
-  };
+  if (url) {
+    if (lines.length) lines.push("");
+    lines.push(`${linkTitle}: ${url}`);
+  }
+  return lines.join("\n");
 }
 
 // fire-and-forget. 실패해도 호출부 흐름을 막지 않는다.
 export async function notifyTeams(opts) {
-  if (!WEBHOOK_URL) return;
+  if (!teamsEnabled()) return;
   try {
-    const res = await fetch(WEBHOOK_URL, {
+    const token = await getBotToken();
+    if (!token) {
+      console.warn(`[teams] bot token 없음 (env RORR_BOT_TOKEN / SSM ${SSM_BOT_TOKEN_PATH}) — 알림 건너뜀`);
+      return;
+    }
+    const res = await fetch(GATEWAY_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildPayload(opts)),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        tool: "sessions_send",
+        args: { agentId: AGENT_ID, message: buildMessage(opts) },
+      }),
     });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
-      console.warn(`[teams] webhook ${res.status}: ${t.slice(0, 300)}`);
+      console.warn(`[teams] gateway ${res.status}: ${t.slice(0, 300)}`);
     }
   } catch (e) {
     console.warn(`[teams] notify failed: ${e.message}`);
