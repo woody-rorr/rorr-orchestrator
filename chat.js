@@ -98,7 +98,7 @@ function serializeMessages(messages) {
   return parts.join("\n\n");
 }
 
-export async function runChat({ messages, userToken, disabledTools = [], enabledMcps, onLog }) {
+export async function runChat({ messages, userToken, disabledTools = [], enabledMcps, onLog, onSpawn }) {
   const log = (level, msg) => {
     if (level === "warn") console.warn(msg);
     else if (level === "error") console.error(msg);
@@ -144,6 +144,13 @@ export async function runChat({ messages, userToken, disabledTools = [], enabled
     let resultEvent = null;
     let lastAssistantText = "";
     const child = spawn("claude", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let cancelled = false;
+    const cancel = () => {
+      if (cancelled) return;
+      cancelled = true;
+      try { child.kill("SIGTERM"); } catch {}
+    };
+    try { onSpawn?.({ child, cancel }); } catch {}
 
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
@@ -230,6 +237,11 @@ export async function runChat({ messages, userToken, disabledTools = [], enabled
       if (toolIdx === 0) log("info", "[route] (no MCP tool calls — Claude answered directly)");
 
       let text;
+      if (cancelled) {
+        text = "🛑 사용자가 요청을 취소했습니다.";
+        finalize({ final: [{ type: "text", text, cancelled: true }], failedTools });
+        return;
+      }
       if (resultEvent) {
         const isError = resultEvent.is_error === true || (resultEvent.api_error_status && resultEvent.api_error_status >= 400);
         if (isError) {
