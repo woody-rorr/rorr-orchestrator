@@ -556,6 +556,9 @@
       <button type="submit" class="send-btn" id="send">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
       </button>
+      <button type="button" class="send-btn" id="stop" title="요청 중단" style="display:none; background:#c0392b;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+      </button>
     </div>
   </form>
 </main>
@@ -879,12 +882,32 @@ form.onsubmit = async (e) => {
   input.style.height = "28px";
   sendBtn.disabled = true;
 
+  // 요청 ID (취소용)
+  const reqId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  window._currentRequestId = reqId;
+  const stopBtn = document.getElementById("stop");
+  stopBtn.style.display = "inline-flex";
+  sendBtn.style.display = "none";
+  const abortController = new AbortController();
+  stopBtn.onclick = async () => {
+    stopBtn.disabled = true;
+    try {
+      await fetch("/chat/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request_id: reqId }),
+      });
+    } catch {}
+    try { abortController.abort(); } catch {}
+  };
+
   try {
     appendLog({ level: "info", text: `[client] → /chat (msg ${chat.history.length})`, ts: Date.now() });
     const r = await fetch("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps], disabled_tools: [...disabledTools], stream: true }),
+      body: JSON.stringify({ messages: chat.history, enabled_mcps: [...enabledMcps], disabled_tools: [...disabledTools], stream: true, request_id: reqId }),
+      signal: abortController.signal,
     });
 
     if (!r.ok || !r.body) {
@@ -937,9 +960,18 @@ form.onsubmit = async (e) => {
     renderTags();
     renderRecent();
   } catch (e) {
-    addMsgEl("assistant", "에러: " + escapeHtml(e.message));
+    if (e.name === "AbortError") {
+      addMsgEl("assistant", "🛑 사용자가 요청을 취소했습니다.");
+    } else {
+      addMsgEl("assistant", "에러: " + escapeHtml(e.message));
+    }
   } finally {
     sendBtn.disabled = false;
+    sendBtn.style.display = "inline-flex";
+    stopBtn.style.display = "none";
+    stopBtn.disabled = false;
+    stopBtn.onclick = null;
+    window._currentRequestId = null;
     input.focus();
   }
 };

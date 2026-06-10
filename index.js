@@ -20,6 +20,9 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
+// 활성 /chat 요청 레지스트리 (cancel용)
+const activeRequests = new Map(); // requestId -> { cancel: fn, login: string }
+
 // 인증 라우트 (정적 서빙 전에)
 app.use("/auth", authRouter);
 
@@ -98,18 +101,24 @@ app.get("/mcps", async (_, res) => {
 });
 
 app.post("/chat", requireAuth, attachUserToken, async (req, res) => {
-  const { messages, disabled_tools, enabled_mcps, stream } = req.body;
+  const { messages, disabled_tools, enabled_mcps, stream, request_id } = req.body;
   if (!Array.isArray(messages)) return res.status(400).json({ error: "messages required" });
+
+  const requestId = request_id || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const onSpawn = ({ cancel }) => {
+    activeRequests.set(requestId, { cancel, login: req.session.login });
+  };
+  const cleanup = () => { activeRequests.delete(requestId); };
 
   // 비스트림 호환 (옛 클라이언트)
   if (!stream) {
     try {
-      const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools, enabledMcps: enabled_mcps });
-      return res.json({ content: final, failedTools: failedTools || [] });
+      const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools, enabledMcps: enabled_mcps, onSpawn });
+      return res.json({ content: final, failedTools: failedTools || [], request_id: requestId });
     } catch (e) {
       console.error(e);
       return res.status(500).json({ error: e.message });
-    }
+    } finally { cleanup(); }
   }
 
   // NDJSON 스트림 — 로그 + 최종 응답
@@ -120,16 +129,34 @@ app.post("/chat", requireAuth, attachUserToken, async (req, res) => {
   res.flushHeaders?.();
   const send = (obj) => { try { res.write(JSON.stringify(obj) + "\n"); } catch {} };
   send({ type: "log", level: "info", text: "[server] stream opened", ts: Date.now() });
+  send({ type: "request_id", request_id: requestId });
   const onLog = (entry) => send({ type: "log", ...entry });
+  // 클라가 연결 끊으면 자동 취소
+  req.on("close", () => {
+    const a = activeRequests.get(requestId);
+    if (a) { try { a.cancel(); } catch {} }
+  });
   try {
-    const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools, enabledMcps: enabled_mcps, onLog });
+    const { final, failedTools } = await runChat({ messages, userToken: req.userToken, disabledTools: disabled_tools, enabledMcps: enabled_mcps, onLog, onSpawn });
     send({ type: "final", content: final, failedTools: failedTools || [] });
   } catch (e) {
     console.error(e);
     send({ type: "final", error: e.message });
   } finally {
+    cleanup();
     res.end();
   }
+});
+
+// 진행 중인 /chat 요청 취소
+app.post("/chat/cancel", requireAuth, (req, res) => {
+  const { request_id } = req.body || {};
+  if (!request_id) return res.status(400).json({ error: "request_id required" });
+  const entry = activeRequests.get(request_id);
+  if (!entry) return res.status(404).json({ error: "not_found" });
+  if (entry.login !== req.session.login) return res.status(403).json({ error: "forbidden" });
+  try { entry.cancel(); } catch {}
+  return res.json({ cancelled: true, request_id });
 });
 
 // 정적 서빙 — 메인 페이지는 인증 체크 후 분기
