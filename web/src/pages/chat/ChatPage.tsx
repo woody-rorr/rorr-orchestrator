@@ -307,6 +307,127 @@ export function ChatPage() {
 
   const currentChat = chats.find((c) => c.id === currentId);
 
+  const planQuickReplies = (() => {
+    if (loading || displayMessages.length === 0) return [];
+    const last = displayMessages[displayMessages.length - 1];
+    if (last.role !== "assistant") return [];
+    const text =
+      typeof last.content === "string"
+        ? last.content
+        : last.content
+            .filter((b) => b.type === "text")
+            .map((b) => b.text ?? "")
+            .join("");
+    if (/진행할까요|진행해도 될까요/.test(text)) {
+      return ["진행해줘", "수정 필요해"];
+    }
+    return [];
+  })();
+
+  async function handleQuickReply(text: string) {
+    setInputValue(text);
+    // 다음 tick에 submit해야 inputValue 반영됨
+    setTimeout(() => {
+      setInputValue(text);
+      // handleSubmit은 inputValue를 직접 읽으므로 여기서 직접 처리
+      handleQuickSubmit(text);
+    }, 0);
+  }
+
+  async function handleQuickSubmit(text: string) {
+    if (loading) return;
+    let chatId = currentId ?? createNewChat();
+    let currentChats = chats;
+
+    const userContent: ContentBlock[] = [{ type: "text", text }];
+    const userTs = Date.now();
+    const userMsg: Message = { role: "user", content: userContent, ts: userTs };
+    const userDisplay = buildUserMessage(text, []);
+    userDisplay.ts = userTs;
+
+    setChats((prev) => {
+      const next = prev.map((c) => {
+        if (c.id !== chatId) return c;
+        return {
+          ...c,
+          title: c.title === "새 대화" && text ? text.slice(0, 30) : c.title,
+          history: [...c.history, userMsg],
+        };
+      });
+      currentChats = next;
+      saveChats(next);
+      return next;
+    });
+
+    setDisplayMessages((prev) => [...prev, userDisplay]);
+    setInputValue("");
+    setLoading(true);
+
+    const reqId = `${Date.now()}-${uid()}`;
+    const ac = new AbortController();
+    setCurrentRequestId(reqId);
+    setAbortController(ac);
+
+    appendLog({ level: "info", text: "[client] → /chat", ts: Date.now() });
+
+    try {
+      const finalEvt = await sendChat(
+        currentChats.find((c) => c.id === chatId)?.history ?? [],
+        { enabledMcps: [...enabledMcps], disabledTools: [...disabledTools], requestId: reqId },
+        { onLog: appendLog, signal: ac.signal }
+      );
+
+      if (finalEvt.error) {
+        setDisplayMessages((prev) => [
+          ...prev,
+          buildAssistantMessage([{ type: "text", text: `에러: ${finalEvt.error}` }], []),
+        ]);
+      } else {
+        const failed = finalEvt.failedTools ?? [];
+        const asstTs = Date.now();
+        const asstDisplay = buildAssistantMessage(finalEvt.content ?? [], failed);
+        asstDisplay.ts = asstTs;
+
+        if (failed.length) {
+          setMcpErrors((prev) => {
+            const next = recordFailedTools(prev, failed);
+            saveMcpErrors(next);
+            return next;
+          });
+        }
+
+        setDisplayMessages((prev) => [...prev, asstDisplay]);
+
+        const asstMsg: Message = { role: "assistant", content: finalEvt.content ?? [], ts: asstTs };
+        setChats((prev) => {
+          const next = prev.map((c) => {
+            if (c.id !== chatId) return c;
+            const updated = { ...c, history: [...c.history, asstMsg] };
+            return updated;
+          });
+          saveChats(next);
+          const chat = next.find((c) => c.id === chatId);
+          if (chat) setTags(detectTags(chat.history));
+          return next;
+        });
+      }
+    } catch (e) {
+      const err = e as Error;
+      const errText =
+        err.name === "AbortError"
+          ? "🛑 사용자가 요청을 취소했습니다."
+          : `에러: ${err.message}`;
+      setDisplayMessages((prev) => [
+        ...prev,
+        buildAssistantMessage([{ type: "text", text: errText }], []),
+      ]);
+    } finally {
+      setLoading(false);
+      setCurrentRequestId(null);
+      setAbortController(null);
+    }
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
@@ -341,6 +462,8 @@ export function ChatPage() {
           onRemoveAttachment={attach.remove}
           fileInputRef={attach.inputRef}
           onFileChange={attach.handleFiles}
+          quickReplies={planQuickReplies}
+          onQuickReply={handleQuickReply}
         />
       </main>
 

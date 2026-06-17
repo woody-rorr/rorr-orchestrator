@@ -70,7 +70,7 @@ const config: Config = {
           infra: "#2d7d6c",
           web: "#b07a3a",
         },
-        success: "#56d364",
+        success: "#3aaa4e",
         warn: "#ffb454",
         danger: "#ff8a8a",
         toolcall: "#4e8cff",
