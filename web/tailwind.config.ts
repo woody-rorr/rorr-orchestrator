@@ -6,6 +6,38 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        "accent-ui": {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
         bg: {
           base: "#0a0a0b",
           sidebar: "#131316",
@@ -48,10 +80,12 @@ const config: Config = {
         },
       },
       borderRadius: {
-        DEFAULT: "8px",
-        lg: "12px",
-        xl: "14px",
-        "2xl": "16px",
+        DEFAULT: "calc(var(--radius))",
+        sm: "calc(var(--radius) - 2px)",
+        md: "calc(var(--radius))",
+        lg: "calc(var(--radius) + 4px)",
+        xl: "calc(var(--radius) + 6px)",
+        "2xl": "calc(var(--radius) + 8px)",
       },
       fontFamily: {
         sans: ["-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"],
@@ -59,7 +93,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [require("tailwindcss-animate")],
 };
 
 export default config;

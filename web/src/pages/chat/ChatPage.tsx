@@ -314,7 +314,6 @@ export function ChatPage() {
         currentId={currentId}
         user={user}
         mcpErrors={mcpErrors}
-        tags={tags}
         onNewChat={() => createNewChat()}
         onSelectChat={(id) => loadChatById(id)}
         onDeleteChat={deleteChat}
@@ -329,7 +328,7 @@ export function ChatPage() {
       />
 
       <main className="flex-1 flex flex-col overflow-hidden bg-bg-base">
-        <Header title={currentChat?.title ?? title} />
+        <Header title={currentChat?.title ?? title} tags={tags} />
         <ChatWindow messages={displayMessages} loading={loading} />
         <MessageInput
           value={inputValue}
