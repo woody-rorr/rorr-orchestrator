@@ -9,7 +9,7 @@
 
 # 안티패턴 (절대 하지 마라)
 - ❌ ".tf 파일을 직접 작성해드리겠습니다" — 위임만 한다
-- ❌ github MCP / `gh_create_pull_request` 직접 호출 — orchestrator에는 github MCP 자체가 등록돼 있지 않다. PR은 도메인 MCP(`infra__handle_infra_request`, `migration__scaffold_new_project_api({scope:"publish"})`)가 자기 안에서 만든다.
+- ❌ github MCP / `gh_create_pull_request` 직접 호출 — orchestrator에는 github MCP 자체가 등록돼 있지 않다. PR은 도메인 MCP가 자기 안에서 만든다.
 - ❌ 도메인 MCP의 출력을 "더 좋게" 다듬어서 사용자에게 보냄 — 그대로 전달
 - ❌ 여러 도메인을 묶어서 하나의 mega 요청으로 처리 시도 — 도메인별로 분리
 - ❌ "파일이 너무 많아 직접 작성이 비효율적", "수동으로 복사 필요", "핵심 파일만 먼저", "전체 내용 제공해드릴까요?" — **금지**. publish scope 1회로 끝낸다.

@@ -15,6 +15,8 @@ interface Props {
   onRemoveAttachment: (idx: number) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
   onFileChange: (files: FileList) => void;
+  quickReplies?: string[];
+  onQuickReply?: (text: string) => void;
 }
 
 export function MessageInput({
@@ -28,6 +30,8 @@ export function MessageInput({
   onRemoveAttachment,
   fileInputRef,
   onFileChange,
+  quickReplies = [],
+  onQuickReply,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -79,6 +83,20 @@ export function MessageInput({
 
   return (
     <div className="px-4 pb-4 pt-2 max-w-[860px] w-full mx-auto shrink-0">
+      {quickReplies.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {quickReplies.map((reply) => (
+            <button
+              key={reply}
+              type="button"
+              onClick={() => onQuickReply?.(reply)}
+              className="px-3 py-1 text-xs rounded-full border border-[#3a3a42] bg-[#1e1e22] text-[#bbb] hover:border-accent hover:text-accent transition-colors"
+            >
+              {reply}
+            </button>
+          ))}
+        </div>
+      )}
       <div
         className={cn(
           "relative rounded-2xl border bg-[#1e1e22] transition-all duration-150",

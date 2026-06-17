@@ -2,21 +2,7 @@
 // 여기는 (1) UI 카탈로그 표시 (2) chat.js가 .mcp.json 빌드용으로만 사용.
 
 const SERVERS = [
-  // { name: "infra",     label: "Infra MCP",             domain: "infra",     desc: "Terraform 코드 생성, 인프라 변경",                                              urlEnv: "MCP_INFRA_URL" },
   { name: "backend-new",   label: "Backend API MCP (rorr-backend-api)", domain: "backend",   desc: "NestJS 신규 API 서버 생성 (piecomp/rorr-backend-api, ECS :5019). scaffold_api 도구 + preflight.",  urlEnv: "MCP_RORR_BACKEND_API_URL" },
-  // { name: "stitch",    label: "Stitch MCP (Google)",   domain: "design",    desc: "Google Stitch — UI 디자인/스크린샷 생성",                                        urlEnv: "MCP_STITCH_URL",
-  //   external: true,
-  //   staticHeaders: { "X-Goog-Api-Key": "STITCH_API_KEY" },
-  //   skipUserAuth: true,
-  //   fallbackTools: [
-  //     "list_projects", "create_project", "get_project",
-  //     "list_screens", "get_screen",
-  //     "generate_screen_from_text", "edit_screens", "generate_variants",
-  //     "upload_design_md",
-  //     "create_design_system", "create_design_system_from_design_md",
-  //     "update_design_system", "list_design_systems", "apply_design_system",
-  //   ],
-  // },
   { name: "web",       label: "Web MCP",               domain: "web",       desc: "웹 페이지/사이트 생성 (front-test repo)",                                        urlEnv: "MCP_WEB_URL" },
   { name: "extension", label: "Extension MCP",         domain: "extension", desc: "브라우저 익스텐션(Chrome Extension) 생성 (extension-test repo)",                  urlEnv: "MCP_EXTENSION_URL" },
   { name: "notion",    label: "Notion MCP",            domain: "notion",    desc: "Notion 페이지/DB 조회·작성 (workspace 통합 토큰 사용)",                          urlEnv: "MCP_NOTION_URL",

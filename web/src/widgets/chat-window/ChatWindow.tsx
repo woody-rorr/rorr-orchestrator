@@ -59,7 +59,7 @@ function MessageBubble({ message }: { message: DisplayMessage }) {
           "px-3.5 py-3 rounded-xl text-sm leading-relaxed break-words",
           isUser
             ? "bg-[#2a2a2e] max-w-[80%] rounded-2xl"
-            : "bg-[#e8e8ec] text-[#111] max-w-[92%] rounded-2xl"
+            : "bg-[#d4d4d9] text-[#111] max-w-[92%] rounded-2xl"
         )}
       >
         {isUser ? (
