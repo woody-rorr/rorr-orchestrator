@@ -1,6 +1,8 @@
 node_modules
+web/node_modules
 .env
 .env.local
 *.log
 .DS_Store
 dist
+web/dist
